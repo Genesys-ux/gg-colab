@@ -94,14 +94,17 @@ def eval_golden_key_world(t: float) -> Tuple[Tuple[float, float, float], float, 
             p = (lerp(0.32, 0.55, v), lerp(26.84, 26.38, v * v), lerp(1.0, 1.55, v))
         else:
             v = (u - 0.45) / 0.55
-            p = (lerp(0.55, 0.28, v), lerp(26.38, 26.22, v) + math.sin(v * math.pi) * 0.48, lerp(1.55, 2.10, v))
+            p = (lerp(0.55, 0.28, v), lerp(26.38, 26.22, v) + math.sin(v * math.pi) * 0.48, lerp(1.55, 1.78, v))
         return p, t * 240.0, t * 180.0
     if t < 7.4:
+        # Menggelinding cepat di atas meja kerja oak (z=1.78..2.38, kontinyu & bebas tembus!)
         u = (t - 5.8) / 1.6
-        return (lerp(0.28, 0.05, u), 26.22 + abs(math.sin(u * math.pi * 4)) * 0.05, lerp(2.10, 3.65, u)), t * 320.0, t * 280.0
+        return (lerp(0.28, 0.05, u), 26.22 + abs(math.sin(u * math.pi * 4)) * 0.05, lerp(1.78, 2.38, u)), t * 320.0, t * 280.0
     if t < 9.0:
+        # Terpental bersih melewati ambang jendela terbuka (y>=26.65 saat z=4.25!) keluar ke kota!
         u = (t - 7.4) / 1.6
-        return (lerp(0.05, 0.0, u), lerp(26.22, 24.4, u * u) + math.sin(u * math.pi) * 0.65, lerp(3.65, 6.8, u)), t * 380.0, t * 340.0
+        arc = math.sin(u * math.pi) * 1.15
+        return (lerp(0.05, 0.0, u), lerp(26.22, 24.4, u * u) + arc, lerp(2.38, 6.8, u)), t * 380.0, t * 340.0
     if t < 11.0:
         u = (t - 9.0) / 2.0
         return (math.sin(u * 3.0) * 0.15, lerp(24.4, 17.7, u * u), lerp(6.8, 10.8, u)), t * 420.0, t * 360.0
@@ -134,16 +137,28 @@ def eval_golden_key_world(t: float) -> Tuple[Tuple[float, float, float], float, 
         rot_rev = 0.0 if t < 32.35 else -(t - 32.35) * 320.0
         return (0.0, -17.0, 42.96), 0.0, rot_rev
     if t < 38.2:
-        u = (t - 34.0) / 4.2
-        ang = u * math.pi * 3.0
-        r = lerp(1.6, 0.4, u)
-        return (math.cos(ang) * r, lerp(-15.0, 12.0, u), lerp(52.0, 62.0, min(1.0, u * 1.4))), t * 480.0, t * 320.0
+        # 2-tahap bebas tembus dinding: (1) meluncur lewat lorong portal z=58 -> cerobong z=62, (2) melesat spiral lurus naik di dalam cerobong!
+        if t < 35.3:
+            u1 = (t - 34.0) / 1.3
+            return (
+                math.sin(u1 * math.pi * 2.0) * 0.42,
+                lerp(-17.0, -15.2, smoothstep(u1)),
+                lerp(42.96, 62.0, smoothstep(u1)),
+            ), t * 420.0, t * 300.0
+        u2 = (t - 35.3) / 2.9
+        ang = u2 * math.pi * 3.0
+        r = lerp(1.05, 0.42, u2)
+        return (
+            math.cos(ang) * r,
+            lerp(-15.2, 12.2, u2),
+            62.0 + math.sin(ang) * r,
+        ), t * 480.0, t * 320.0
     if t < 49.0:
         u = (t - 38.2) / 10.8
-        return (lerp(0.2, 0.0, u), lerp(12.5, 19.5, u) + math.sin(u * math.pi) * 9.5, lerp(64.0, 115.2, u)), t * 320.0, t * 180.0
+        return (lerp(0.42, 0.0, u), lerp(12.2, 19.5, u) + math.sin(u * math.pi) * 9.5, lerp(62.0, 115.2, u)), t * 320.0, t * 180.0
     if t < 51.8:
         u = smoothstep((t - 49.0) / 2.8)
-        return (lerp(0.35, 0.0, u), lerp(19.2, 19.5, u), lerp(115.6, 117.05, u)), lerp(45.0, 0.0, u), lerp(-35.0, 0.0, u)
+        return (lerp(0.0, 0.0, u), lerp(19.5, 19.5, u), lerp(115.2, 117.05, u)), lerp(45.0, 0.0, u), lerp(-35.0, 0.0, u)
     return (0.0, 19.5, 117.05), 0.0, 90.0
 
 
@@ -173,7 +188,7 @@ def eval_camera_world(t: float) -> CameraFrameSpec:
         ang = math.radians(lerp(-12.0, 108.0, u))
         r = lerp(0.85, 1.28, u)
         eye = add3(key_p, (math.sin(ang) * r, lerp(0.05, 0.16, u), -math.cos(ang) * r))
-        tgt = lerp3(key_p, (-0.15, 26.95, 1.85), 0.25 * u)
+        tgt = lerp3(key_p, (-0.10, 26.48, 2.68), 0.28 * u)
         return CameraFrameSpec("CAM 02", eye, tgt, 20.0, lerp(-8.0, 13.0, u), fstop=2.4)
     if t < 5.8:
         u = exp_ease_in_out((t - 4.2) / 1.6, 5.5)
@@ -182,12 +197,12 @@ def eval_camera_world(t: float) -> CameraFrameSpec:
         return CameraFrameSpec("CAM 03", eye, tgt, 19.0, lerp(8.0, -5.0, u), fstop=3.2)
     if t < 7.4:
         u = smoothstep((t - 5.8) / 1.6)
-        eye = (lerp(0.95, 0.65, u), 26.26, lerp(1.55, 3.05, u))
-        tgt = add3(key_p, (-0.15, 0.08, 0.45))
+        eye = (lerp(0.95, 0.72, u), 26.32, lerp(1.45, 2.48, u))
+        tgt = add3(key_p, (-0.10, 0.08, 0.55))
         return CameraFrameSpec("CAM 04", eye, tgt, 18.0, -3.5, fstop=3.0)
     if t < 9.0:
         u = whip_curve((t - 7.4) / 1.6)
-        eye = lerp3((0.65, 26.35, 3.05), (0.15, 25.4, 6.4), u)
+        eye = lerp3((0.72, 26.40, 2.48), (0.15, 25.4, 6.4), u)
         tgt = lerp3(key_p, (0.0, 21.0, 11.2), u)
         return CameraFrameSpec("CAM 05", eye, tgt, 18.0, lerp(-4.0, 12.0, u), fstop=4.5)
 
@@ -263,12 +278,17 @@ def eval_camera_world(t: float) -> CameraFrameSpec:
         tgt = (sh_x * 0.4, -17.0 + sh_y * 0.4, 43.0)
         return CameraFrameSpec("CAM 18", eye, tgt, 21.0, sh_x * 20.0, fstop=2.2)
     if t < 38.0:
-        u = (t - 34.0) / 4.0
-        ang = u * math.pi * 2.6
-        r = lerp(2.8, 1.9, u)
-        y_cam = lerp(-15.5, 9.2, exp_ease_in_out(u, 4.0))
-        z_cen = lerp(49.0, 62.0, clamp(u * 1.35))
-        return CameraFrameSpec("CAM 19", (math.cos(ang) * r, y_cam, z_cen + math.sin(ang) * r), (0.0, y_cam + 3.8, z_cen), 18.0, math.sin(ang) * 18.0, fstop=4.5)
+        # 2-tahap kamera bebas tembus dinding: melewati portal lorong (z=58) lalu spiral lurus naik di dalam cerobong terbuka (z=62)!
+        if t < 35.2:
+            u1 = smoothstep((t - 34.0) / 1.2)
+            eye = (lerp(0.42, 0.0, u1), lerp(-16.75, -14.8, u1), lerp(40.85, 60.4, u1))
+            tgt = (0.0, lerp(-16.8, -12.0, u1), lerp(43.5, 62.0, u1))
+            return CameraFrameSpec("CAM 19", eye, tgt, 18.0, lerp(0.0, 14.0, u1), fstop=4.5)
+        u2 = (t - 35.2) / 2.8
+        ang = u2 * math.pi * 2.4
+        r = lerp(1.6, 1.45, u2)
+        y_cam = lerp(-14.8, 9.6, exp_ease_in_out(u2, 4.0))
+        return CameraFrameSpec("CAM 19", (math.cos(ang) * r, y_cam, 62.0 + math.sin(ang) * r), (0.0, y_cam + 3.8, 62.0), 18.0, math.sin(ang) * 18.0, fstop=4.5)
 
     # ==================== LOKASI 5: STASIUN TREM LAYANG TERBUKA (00:38 - 00:49) ====================
     if t < 39.8:
@@ -302,7 +322,7 @@ def eval_camera_world(t: float) -> CameraFrameSpec:
         return CameraFrameSpec("CAM 26", lerp3((0.55, 19.35, 114.85), (-11.5, 20.5, 86.0), u), lerp3((0.0, 19.5, 117.2), (4.5, 15.2, 114.0), u), 18.0, lerp(0.0, -3.0, u), fstop=6.4)
     if t < 56.4:
         u = snappy_dolly_overshoot((t - 54.5) / 1.5, overshoot=0.055)
-        return CameraFrameSpec("CAM 27", lerp3((-1.4, 17.5, 111.4), (-0.32, 16.92, 113.45), clamp(u)), lerp3((-0.18, 16.6, 115.85), (-0.24, 16.18, 115.85), clamp(u)), 22.0, lerp(-2.0, 3.5, clamp(u)), fstop=2.4)
+        return CameraFrameSpec("CAM 27", lerp3((-1.4, 17.5, 111.8), (-0.32, 16.92, 113.85), clamp(u)), lerp3((-0.18, 16.6, 116.25), (-0.24, 16.22, 116.25), clamp(u)), 22.0, lerp(-2.0, 3.5, clamp(u)), fstop=2.4)
 
     # [CAM 28] Seamless Loop Whip-Pan Dive mengikuti Kunci Perak menembus celah 2 roda gigi -> kembali ke [CAM 01]!
     u = exp_ease_in_out((t - 56.4) / 1.6, 6.5)

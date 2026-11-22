@@ -1008,6 +1008,148 @@ def make_coastal_lighthouse_3d(location: Tuple[float, float, float], collection,
     make_lathe_mesh("L6_LH_Cupola", [(1.18, 0.0), (1.02, 0.55), (0.58, 1.10), (0.14, 1.42), (0.04, 2.15)], (lx, ly, lz + 14.72), collection, mats["copper_ox"], segments=18, cap_bottom=True, cap_top=True, ink_mat=ink, outline_thickness=0.020)
 
 
+def make_sunlight_beam_3d(
+    name: str,
+    origin: Tuple[float, float, float],
+    target: Tuple[float, float, float],
+    radius_start: float,
+    radius_end: float,
+    collection,
+    mat_beam,
+) -> "bpy.types.Object":
+    """
+    Sinar matahari sinematik 3D (Volumetric God Ray Shaft) dari `origin` menuju `target`.
+    Dibuat dari tabung kerucut terbuka halus tanpa tutup agar ujungnya memudar sempurna!
+    """
+    p0 = Vector(origin)
+    p1 = Vector(target)
+    vec = p1 - p0
+    length = max(0.5, float(vec.length))
+    mid = (p0 + p1) * 0.5
+
+    bm = bmesh.new()
+    bmesh.ops.create_cone(
+        bm,
+        cap_ends=False,
+        cap_tris=False,
+        segments=24,
+        radius1=radius_end,   # Z = -length/2 (ujung target, memudar ke 0!)
+        radius2=radius_start, # Z = +length/2 (sumber sinar terang!)
+        depth=length,
+    )
+    obj = create_mesh_object(name, bm, collection, (mid.x, mid.y, mid.z), mat=mat_beam, smooth=True)
+    # Arahkan sumbu +Z lokal kerucut dari target ke origin (agar Generated.Z=1 berada di sumber cahaya!)
+    z_axis = (p0 - p1).normalized()
+    up_ref = Vector((0, 0, 1)) if abs(z_axis.z) < 0.96 else Vector((1, 0, 0))
+    x_axis = up_ref.cross(z_axis).normalized()
+    y_axis = z_axis.cross(x_axis).normalized()
+    rot_m = Matrix((
+        (x_axis.x, y_axis.x, z_axis.x),
+        (x_axis.y, y_axis.y, z_axis.y),
+        (x_axis.z, y_axis.z, z_axis.z),
+    ))
+    obj.rotation_mode = "QUATERNION"
+    obj.rotation_quaternion = rot_m.to_quaternion()
+    return obj
+
+
+def _make_terrain_ridge_mesh(
+    name: str,
+    center_xy: Tuple[float, float],
+    length_y: float,
+    width_x: float,
+    base_z: float,
+    peak_h: float,
+    seed: float,
+    collection,
+    mat,
+    rot_z_deg: float = 0.0,
+) -> "bpy.types.Object":
+    """Bangun punggung bukit pesisir Mediterania bergelombang organik (smooth mesh terrain)."""
+    bm = bmesh.new()
+    nx, ny = 10, 26
+    grid = []
+    for iy in range(ny + 1):
+        vy = iy / float(ny)
+        y_local = (vy - 0.5) * length_y
+        # Envelop membulat di ujung depan & belakang bukit
+        env_y = math.sin(vy * math.pi) ** 0.72
+        row = []
+        for ix in range(nx + 1):
+            ux = ix / float(nx)
+            x_local = (ux - 0.5) * width_x
+            env_x = math.sin(ux * math.pi) ** 0.85
+            # Multi-harmonic rolling hills (alami ala perbukitan Amalfi / Cinque Terre!)
+            wave = (
+                0.56
+                + 0.24 * math.sin(vy * 9.5 + seed)
+                + 0.14 * math.cos(vy * 18.2 - ux * 4.5 + seed * 1.7)
+                + 0.09 * math.sin(ux * 8.0 + vy * 14.0 + seed * 0.5)
+            )
+            z_h = base_z + peak_h * env_x * env_y * max(0.15, wave)
+            row.append(bm.verts.new((x_local, y_local, z_h)))
+        grid.append(row)
+
+    for iy in range(ny):
+        for ix in range(nx):
+            bm.faces.new((grid[iy][ix], grid[iy][ix + 1], grid[iy + 1][ix + 1], grid[iy + 1][ix]))
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return create_mesh_object(
+        name, bm, collection, (center_xy[0], center_xy[1], 0.0),
+        rotation_deg=(0.0, 0.0, rot_z_deg), mat=mat, smooth=True,
+    )
+
+
+def make_coastal_hills_backdrop_3d(collection, mats: dict) -> None:
+    """
+    Bangun lanskap perbukitan pesisir Mediterania berlapis + kabut lembah tipis di sekeliling kota
+    sehingga TIDAK ADA lagi latar horizon yang kosong pada seluruh 6 lokasi & 28 gerakan kamera!
+    """
+    # Ring 1: Perbukitan dekat kiri & kanan teluk (hijau zaitun + teras pesisir + pohon cemara)
+    _make_terrain_ridge_mesh("BG_Hill_Near_L1", (-58.0, 58.0), 140.0, 62.0, -2.0, 34.0, 1.1, collection, mats["hill_olive"], rot_z_deg=-6.0)
+    _make_terrain_ridge_mesh("BG_Hill_Near_R1", (62.0, 66.0), 148.0, 66.0, -2.0, 38.0, 2.7, collection, mats["hill_olive"], rot_z_deg=8.0)
+    _make_terrain_ridge_mesh("BG_Hill_Near_BackL", (-52.0, 165.0), 115.0, 58.0, -2.0, 24.0, 4.2, collection, mats["hill_terracotta"], rot_z_deg=26.0)
+    _make_terrain_ridge_mesh("BG_Hill_Near_BackR", (58.0, 172.0), 120.0, 62.0, -2.0, 28.0, 5.4, collection, mats["hill_terracotta"], rot_z_deg=-24.0)
+
+    # Ring 2: Pegunungan pesisir jauh berkabut di horizon (tetap di bawah matahari crimson z=29 pada y=192!)
+    _make_terrain_ridge_mesh("BG_Hill_Far_Center", (8.0, 215.0), 210.0, 74.0, -3.0, 22.0, 3.3, collection, mats["hill_distant"], rot_z_deg=90.0)
+    _make_terrain_ridge_mesh("BG_Hill_Far_L", (-118.0, 92.0), 210.0, 88.0, -3.0, 52.0, 6.1, collection, mats["hill_distant"], rot_z_deg=-10.0)
+    _make_terrain_ridge_mesh("BG_Hill_Far_R", (122.0, 96.0), 215.0, 92.0, -3.0, 56.0, 7.5, collection, mats["hill_distant"], rot_z_deg=10.0)
+    _make_terrain_ridge_mesh("BG_Hill_Far_Behind", (0.0, -58.0), 185.0, 70.0, -2.0, 44.0, 8.2, collection, mats["hill_distant"], rot_z_deg=90.0)
+
+    # Siluet pohon cemara Mediterania (Italian Cypress) & gugusan rumah kecil di lereng perbukitan dekat
+    cypress_spots = [
+        (-36.0, 32.0, 14.0), (-42.0, 48.0, 18.0), (-38.0, 74.0, 15.0), (-45.0, 102.0, 19.0),
+        (38.0, 38.0, 15.0), (44.0, 62.0, 20.0), (40.0, 88.0, 17.0), (46.0, 114.0, 21.0),
+    ]
+    for ci, (cx, cy, cz) in enumerate(cypress_spots):
+        make_smooth_cylinder(f"BG_Cypress_{ci}", 0.95, 0.14, 7.2, (cx, cy, cz + 3.4), collection, mats["cypress_green"], segments=10, bevel_width=0.05)
+
+    # Rumah desa bukit pesisir kecil di lereng kiri & kanan (menambah skala & kedalaman!)
+    villa_mats = [mats["plaster_warm"], mats["plaster_terracotta"], mats["plaster_ochre"], mats["plaster_coral"]]
+    for vi, (vx, vy, vz) in enumerate([
+        (-40.0, 42.0, 16.5), (-46.0, 84.0, 20.0), (-35.0, 128.0, 14.0),
+        (42.0, 50.0, 18.0), (48.0, 96.0, 22.0), (38.0, 134.0, 15.0),
+    ]):
+        make_beveled_box(f"BG_HillVilla_{vi}", (5.2, 4.8, 4.4), (vx, vy, vz), collection, villa_mats[vi % len(villa_mats)], rotation_deg=(0, 0, vi * 23), bevel_width=0.08)
+        make_beveled_box(f"BG_HillVillaRoof_{vi}", (5.8, 5.4, 0.9), (vx, vy, vz + 2.55), collection, mats["terracotta_roof"], rotation_deg=(0, 0, vi * 23), bevel_width=0.06)
+
+    # Ring 3: Kabut lembah tipis bergumpal lembut di kaki bukit & tepi teluk (IsCameraRay only -> super cepat!)
+    mist_spots = [
+        (-44.0, 48.0, 10.5, 22.0), (48.0, 58.0, 11.5, 24.0),
+        (-48.0, 115.0, 9.5, 26.0), (50.0, 122.0, 10.5, 26.0),
+        (-28.0, 168.0, 8.5, 28.0), (34.0, 174.0, 9.0, 28.0),
+        (0.0, 192.0, 7.5, 34.0),
+    ]
+    for mi, (mx, my, mz, mrad) in enumerate(mist_spots):
+        make_smooth_sphere(
+            f"BG_ValleyMist_{mi}", mrad, (mx, my, mz), collection,
+            mats["fx_valley_mist"], scale=(1.45, 0.95, 0.34), subdivisions=2,
+        )
+
+
+
 
 def make_seagull_3d(
     name: str,

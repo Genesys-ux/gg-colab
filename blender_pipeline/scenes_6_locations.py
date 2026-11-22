@@ -29,6 +29,7 @@ from .mesh_utils import (
     get_or_create_collection,
     link_object,
     make_beveled_box,
+    make_coastal_hills_backdrop_3d,
     make_coastal_lighthouse_3d,
     make_cogwheel_3d,
     make_draped_canopy_3d,
@@ -40,6 +41,7 @@ from .mesh_utils import (
     make_smooth_cylinder,
     make_smooth_sphere,
     make_spice_sack_3d,
+    make_sunlight_beam_3d,
     make_teacup_and_saucer_3d,
     make_venetian_clock_tower_3d,
     make_vintage_tram_3d,
@@ -48,7 +50,7 @@ from .mesh_utils import (
 
 @dataclass
 class SceneHandles:
-    """Referensi seluruh objek 3D dinamis yang akan dianimasikan di `animation_director.py`."""
+    """Referensi seluruh objek 3D dinamis & properti reaktif yang dianimasikan di `animation_director.py`."""
 
     fg_hanging_gears: List["bpy.types.Object"] = field(default_factory=list)
     underground_gears: List[Tuple["bpy.types.Object", float]] = field(default_factory=list)
@@ -63,6 +65,12 @@ class SceneHandles:
     klak_sparks: List["bpy.types.Object"] = field(default_factory=list)
     silver_sparkle: "bpy.types.Object | None" = None
     crimson_sun_orb: "bpy.types.Object | None" = None
+    # Properti interaktif yang bereaksi fisik saat tersentuh kunci/karakter!
+    hero_teacup: "bpy.types.Object | None" = None
+    hero_red_canopy: "bpy.types.Object | None" = None
+    hero_turmeric_sack: "bpy.types.Object | None" = None
+    crimson_beams: List["bpy.types.Object"] = field(default_factory=list)
+    twilight_beams: List["bpy.types.Object"] = field(default_factory=list)
 
 
 def _build_lokasi_1_bengkel(mats: dict, handles: SceneHandles) -> None:
@@ -92,65 +100,65 @@ def _build_lokasi_1_bengkel(mats: dict, handles: SceneHandles) -> None:
     make_beveled_box("L1_Shutter_L", (0.10, 1.15, 2.55), w_to_b(-2.15, 27.65, 4.82), col, mats["shutter_blue"], rotation_deg=(0, 0, 34), bevel_width=0.02, ink_mat=ink, outline_thickness=0.012)
     make_beveled_box("L1_Shutter_R", (0.10, 1.15, 2.55), w_to_b(2.15, 27.65, 4.82), col, mats["shutter_blue"], rotation_deg=(0, 0, -34), bevel_width=0.02, ink_mat=ink, outline_thickness=0.012)
 
-    # Meja kerja tukang jam asli (dengan bibir pengaman tepi & laci bertombol kuningan!)
-    make_beveled_box("L1_Workbench", (4.6, 3.2, 0.18), w_to_b(0, 26.0, 2.1), col, mats["oak_wood"], bevel_width=0.035, ink_mat=ink, outline_thickness=0.010)
-    make_beveled_box("L1_BenchRail_L", (0.08, 3.2, 0.08), w_to_b(-2.26, 26.13, 2.1), col, mats["oak_dark"], bevel_width=0.015)
-    make_beveled_box("L1_BenchRail_R", (0.08, 3.2, 0.08), w_to_b(2.26, 26.13, 2.1), col, mats["oak_dark"], bevel_width=0.015)
+    # Meja kerja tukang jam asli (kedalaman 1.70m: z_fwd=0.70..2.40 -> ruang berdiri Bima di belakang z=2.68 100% BEBAS TEMBUS!)
+    make_beveled_box("L1_Workbench", (4.6, 1.70, 0.18), w_to_b(0, 26.0, 1.55), col, mats["oak_wood"], bevel_width=0.035, ink_mat=ink, outline_thickness=0.010)
+    make_beveled_box("L1_BenchRail_L", (0.08, 1.70, 0.08), w_to_b(-2.26, 26.13, 1.55), col, mats["oak_dark"], bevel_width=0.015)
+    make_beveled_box("L1_BenchRail_R", (0.08, 1.70, 0.08), w_to_b(2.26, 26.13, 1.55), col, mats["oak_dark"], bevel_width=0.015)
     for di, dx in enumerate((-1.2, 0.0, 1.2)):
-        make_beveled_box(f"L1_Drawer_{di}", (1.05, 0.12, 0.34), w_to_b(dx, 25.72, 0.52), col, mats["oak_dark"], bevel_width=0.02)
-        make_smooth_sphere(f"L1_DrawerPull_{di}", 0.038, w_to_b(dx, 25.72, 0.44), col, mats["brass_gold"], subdivisions=2)
+        make_beveled_box(f"L1_Drawer_{di}", (1.05, 0.12, 0.34), w_to_b(dx, 25.72, 0.72), col, mats["oak_dark"], bevel_width=0.02)
+        make_smooth_sphere(f"L1_DrawerPull_{di}", 0.038, w_to_b(dx, 25.72, 0.64), col, mats["brass_gold"], subdivisions=2)
     for lx in (-2.05, 2.05):
-        for lz in (0.75, 3.45):
+        for lz in (0.85, 2.25):
             make_beveled_box(f"L1_Leg_{lx:.1f}_{lz:.1f}", (0.18, 0.18, 1.15), w_to_b(lx, 25.4, lz), col, mats["oak_dark"], bevel_width=0.025)
 
-    # Hero Prop Cangkir Teh Porselen + Tatakan ([CAM 03]!)
-    make_teacup_and_saucer_3d("L1_Hero_Teacup", w_to_b(0.55, 26.09, 1.55), col, mats["porcelain"], mats["tea_liquid"], mats["prop_red"], ink_mat=ink)
+    # Hero Prop Cangkir Teh Porselen + Tatakan (reaktif bergetar saat kunci memantul di [CAM 03]!)
+    handles.hero_teacup = make_teacup_and_saucer_3d("L1_Hero_Teacup", w_to_b(0.55, 26.09, 1.55), col, mats["porcelain"], mats["tea_liquid"], mats["prop_red"], ink_mat=ink)
 
-    # Roda gigi kuningan berserakan di meja + obeng + kaca pembesar
+    # Roda gigi kuningan berserakan di meja + obeng + kaca pembesar (semua rapi di atas z_fwd=0.95..2.28!)
     desk_gears = [
-        (-1.25, 26.12, 1.20, 0.24, 10, mats["brass_gold"]),
-        (-0.82, 26.12, 1.75, 0.17, 8, mats["brass_dark"]),
-        (-1.45, 26.12, 2.45, 0.30, 12, mats["brass_gold"]),
-        (1.15, 26.12, 2.15, 0.26, 12, mats["brass_gold"]),
-        (0.92, 26.12, 2.85, 0.19, 10, mats["oren_bell_copper"]),
-        (-0.35, 26.12, 2.95, 0.22, 10, mats["brass_gold"]),
-        (1.55, 26.12, 1.15, 0.28, 12, mats["brass_dark"]),
+        (-1.25, 26.12, 1.05, 0.24, 10, mats["brass_gold"]),
+        (-0.82, 26.12, 1.55, 0.17, 8, mats["brass_dark"]),
+        (-1.45, 26.12, 2.05, 0.28, 12, mats["brass_gold"]),
+        (1.15, 26.12, 1.90, 0.26, 12, mats["brass_gold"]),
+        (0.92, 26.12, 2.20, 0.19, 10, mats["oren_bell_copper"]),
+        (-0.35, 26.12, 2.18, 0.22, 10, mats["brass_gold"]),
+        (1.55, 26.12, 1.12, 0.28, 12, mats["brass_dark"]),
     ]
     for gi, (gx, gy, gz, gr, gt, gm) in enumerate(desk_gears):
         make_cogwheel_3d(f"L1_DeskGear_{gi}", gr, 0.055, gt, w_to_b(gx, gy, gz), col, gm, rotation_deg=(90, 0, gx * 40), ink_mat=ink, outline_thickness=0.005)
 
     for oi, (ox, oz, omat, oang) in enumerate([
-        (-0.65, 2.20, mats["prop_blue"], 28),
-        (-0.18, 2.58, mats["prop_red"], -18),
-        (0.75, 2.65, mats["prop_green"], 42),
+        (-0.65, 1.88, mats["prop_blue"], 28),
+        (-0.18, 2.12, mats["prop_red"], -18),
+        (0.75, 2.15, mats["prop_green"], 42),
     ]):
         make_smooth_cylinder(f"L1_ScrewHandle_{oi}", 0.042, 0.046, 0.24, w_to_b(ox, 26.14, oz), col, omat, segments=14, rotation_deg=(90, 0, oang), ink_mat=ink, outline_thickness=0.004)
         make_smooth_cylinder(f"L1_ScrewShaft_{oi}", 0.012, 0.012, 0.28, w_to_b(ox + 0.16, 26.14, oz + 0.08), col, mats["steel_bright"], segments=10, rotation_deg=(90, 0, oang))
-    make_smooth_cylinder("L1_MagRim", 0.18, 0.18, 0.04, w_to_b(-0.85, 26.14, 2.95), col, mats["brass_gold"], segments=24, ink_mat=ink, outline_thickness=0.005)
-    make_smooth_cylinder("L1_MagGlass", 0.148, 0.148, 0.025, w_to_b(-0.85, 26.145, 2.95), col, mats["glass_dusty"], segments=22)
-    make_smooth_cylinder("L1_MagHandle", 0.030, 0.038, 0.34, w_to_b(-1.14, 26.14, 3.12), col, mats["oak_dark"], segments=12, rotation_deg=(90, 0, 60), ink_mat=ink, outline_thickness=0.005)
+    make_smooth_cylinder("L1_MagRim", 0.18, 0.18, 0.04, w_to_b(-0.85, 26.14, 2.18), col, mats["brass_gold"], segments=24, ink_mat=ink, outline_thickness=0.005)
+    make_smooth_cylinder("L1_MagGlass", 0.148, 0.148, 0.025, w_to_b(-0.85, 26.145, 2.18), col, mats["glass_dusty"], segments=22)
+    make_smooth_cylinder("L1_MagHandle", 0.030, 0.038, 0.34, w_to_b(-1.14, 26.14, 2.28), col, mats["oak_dark"], segments=12, rotation_deg=(90, 0, 60), ink_mat=ink, outline_thickness=0.005)
 
-    # 4 Toples kaca + pegas spiral 3D warna-warni
+    # 4 Toples kaca + pegas spiral 3D warna-warni (rapi di sisi kiri & kanan meja!)
     jar_prof = [(0.17, 0.0), (0.19, 0.05), (0.19, 0.38), (0.15, 0.45), (0.15, 0.50)]
     for ji, (jx, jz, smat) in enumerate([
-        (-1.82, 1.35, mats["prop_red"]),
-        (-1.72, 2.05, mats["canopy_teal"]),
-        (-1.86, 2.85, mats["prop_orange"]),
-        (1.88, 2.85, mats["prop_magenta"]),
+        (-1.82, 1.05, mats["prop_red"]),
+        (-1.72, 1.62, mats["canopy_teal"]),
+        (-1.86, 2.15, mats["prop_orange"]),
+        (1.88, 2.12, mats["prop_magenta"]),
     ]):
         make_lathe_mesh(f"L1_JarGlass_{ji}", jar_prof, w_to_b(jx, 26.09, jz), col, mats["glass_dusty"], segments=20, cap_bottom=True, cap_top=False, subsurf_levels=1)
         make_smooth_cylinder(f"L1_JarLid_{ji}", 0.165, 0.165, 0.07, w_to_b(jx, 26.61, jz), col, mats["brass_dark"], segments=18, ink_mat=ink, outline_thickness=0.005)
         make_helix_spring(f"L1_JarSpring_{ji}", 0.095, 0.016, 0.34, 4.5, w_to_b(jx, 26.32, jz), col, smat)
 
     # ASET 3D NYATA CC0 POLY HAVEN di Lokasi 1 (otomatis terpasang jika tersedia, fallback mulus!)
-    if not place_polyhaven_model("desk_lamp", "L1_PH_DeskLamp", w_to_b(1.72, 26.09, 1.75), col, target_height=0.82, rotation_deg=(0, 0, -145)):
-        make_lathe_mesh("L1_LampBase", [(0.24, 0.0), (0.21, 0.06), (0.12, 0.10), (0.05, 0.12)], w_to_b(1.72, 26.09, 1.75), col, mats["brass_gold"], segments=20, cap_bottom=True, cap_top=True, ink_mat=ink, outline_thickness=0.006)
-        make_smooth_cylinder("L1_LampStem", 0.036, 0.032, 0.72, w_to_b(1.72, 26.52, 1.75), col, mats["brass_gold"], segments=14)
-        make_beveled_box("L1_LampShade", (0.56, 0.36, 0.24), w_to_b(1.55, 26.86, 1.75), col, mats["glass_lamp_green"], rotation_deg=(0, -18, 0), bevel_width=0.06, ink_mat=ink, outline_thickness=0.008)
-        make_smooth_sphere("L1_LampBulb", 0.10, w_to_b(1.55, 26.75, 1.75), col, mats["emissive_lamp"], subdivisions=2)
+    if not place_polyhaven_model("desk_lamp", "L1_PH_DeskLamp", w_to_b(1.72, 26.09, 1.55), col, target_height=0.82, rotation_deg=(0, 0, -145)):
+        make_lathe_mesh("L1_LampBase", [(0.24, 0.0), (0.21, 0.06), (0.12, 0.10), (0.05, 0.12)], w_to_b(1.72, 26.09, 1.55), col, mats["brass_gold"], segments=20, cap_bottom=True, cap_top=True, ink_mat=ink, outline_thickness=0.006)
+        make_smooth_cylinder("L1_LampStem", 0.036, 0.032, 0.72, w_to_b(1.72, 26.52, 1.55), col, mats["brass_gold"], segments=14)
+        make_beveled_box("L1_LampShade", (0.56, 0.36, 0.24), w_to_b(1.55, 26.86, 1.55), col, mats["glass_lamp_green"], rotation_deg=(0, -18, 0), bevel_width=0.06, ink_mat=ink, outline_thickness=0.008)
+        make_smooth_sphere("L1_LampBulb", 0.10, w_to_b(1.55, 26.75, 1.55), col, mats["emissive_lamp"], subdivisions=2)
 
-    place_polyhaven_model("mantel_clock", "L1_PH_MantelClock", w_to_b(-1.35, 26.09, 3.22), col, target_height=0.44, rotation_deg=(0, 0, 165))
-    place_polyhaven_model("alarm_clock", "L1_PH_AlarmClock", w_to_b(1.22, 26.09, 3.15), col, target_height=0.28, rotation_deg=(0, 0, -155))
+    place_polyhaven_model("mantel_clock", "L1_PH_MantelClock", w_to_b(-1.35, 26.09, 2.22), col, target_height=0.44, rotation_deg=(0, 0, 165))
+    place_polyhaven_model("alarm_clock", "L1_PH_AlarmClock", w_to_b(1.22, 26.09, 2.18), col, target_height=0.28, rotation_deg=(0, 0, -155))
     place_polyhaven_model("toolbox", "L1_PH_Toolbox", w_to_b(2.0, 24.98, 2.6), col, target_height=0.45, rotation_deg=(0, 0, 28))
     if not place_polyhaven_model("wall_clock", "L1_PH_WallClock", w_to_b(-4.12, 27.6, 1.6), col, target_height=1.05, rotation_deg=(0, 0, 90)):
         make_beveled_box("L1_WallClock", (0.28, 1.15, 1.90), w_to_b(-4.15, 28.0, 1.6), col, mats["plaster_teal"], bevel_width=0.04, ink_mat=ink, outline_thickness=0.012)
@@ -201,14 +209,14 @@ def _build_lokasi_2_pasar(mats: dict, handles: SceneHandles) -> None:
     for pi, (pz, py) in enumerate([(20.2, 11.2), (22.4, 9.5), (24.8, 7.6), (27.0, 5.8)]):
         make_beveled_box(f"L2_RailPost_{pi}", (0.16, 0.16, 1.15), w_to_b(1.95, py + 0.45, pz), col, mats["oak_dark"], bevel_width=0.025)
 
-    # 5 Kanopi tenda kain pasar melengkung & berkibar
-    make_draped_canopy_3d("L2_Canopy_RedHero", 3.9, 3.2, 3.2, w_to_b(0.0, 14.2, 10.8), col, mats["canopy_red"], mats["canopy_cream"], mats["oak_wood"], ink_mat=ink, rotation_deg=(0, 0, 4))
+    # 5 Kanopi tenda kain pasar melengkung & berkibar (Hero Red Canopy reaktif memantul di [CAM 07]!)
+    handles.hero_red_canopy = make_draped_canopy_3d("L2_Canopy_RedHero", 3.9, 3.2, 3.2, w_to_b(0.0, 14.2, 10.8), col, mats["canopy_red"], mats["canopy_cream"], mats["oak_wood"], ink_mat=ink, rotation_deg=(0, 0, 4))
     make_draped_canopy_3d("L2_Canopy_Teal", 3.2, 2.9, 2.8, w_to_b(-2.5, 14.2, 13.8), col, mats["canopy_teal"], mats["canopy_cream"], mats["oak_wood"], ink_mat=ink, rotation_deg=(0, 0, -6))
     make_draped_canopy_3d("L2_Canopy_Ochre", 3.4, 3.1, 3.0, w_to_b(2.4, 12.0, 15.2), col, mats["canopy_ochre"], mats["canopy_cream"], mats["oak_wood"], ink_mat=ink, rotation_deg=(0, 0, 8))
     make_draped_canopy_3d("L2_Canopy_Plum", 3.3, 2.9, 2.9, w_to_b(-2.6, 12.0, 18.0), col, mats["canopy_plum"], mats["canopy_cream"], mats["oak_wood"], ink_mat=ink, rotation_deg=(0, 0, -5))
     make_draped_canopy_3d("L2_Canopy_Teal2", 3.0, 2.8, 2.6, w_to_b(2.7, 12.0, 18.6), col, mats["canopy_teal"], mats["canopy_cream"], mats["oak_wood"], ink_mat=ink, rotation_deg=(0, 0, 5))
 
-    # 5 Karung goni bulat terikat tali + bubuk kunyit & cabai ([CAM 09]!)
+    # 5 Karung goni bulat terikat tali + bubuk kunyit & cabai (karung tengah reaktif penyok saat dihantam kunci [CAM 09]!)
     sacks = [
         (0.25, 12.0, 16.9, mats["turmeric_pile"], 1.05),
         (-0.58, 12.0, 17.3, mats["chili_pile"], 0.96),
@@ -217,7 +225,9 @@ def _build_lokasi_2_pasar(mats: dict, handles: SceneHandles) -> None:
         (1.58, 12.0, 16.4, mats["chili_pile"], 0.96),
     ]
     for si, (sx, sy, sz, spm, ssc) in enumerate(sacks):
-        make_spice_sack_3d(f"L2_SpiceSack_{si}", w_to_b(sx, sy, sz), col, mats["burlap"], spm, mats["oak_dark"], ink_mat=ink, scale=ssc)
+        sack_obj = make_spice_sack_3d(f"L2_SpiceSack_{si}", w_to_b(sx, sy, sz), col, mats["burlap"], spm, mats["oak_dark"], ink_mat=ink, scale=ssc)
+        if si == 0:
+            handles.hero_turmeric_sack = sack_obj
 
     # ASET 3D NYATA CC0 POLY HAVEN di Pasar (tong kayu, peti kayu asli, pot keramik!)
     place_polyhaven_model("wood_barrel", "L2_PH_Barrel_L", w_to_b(-2.4, 12.0, 15.0), col, target_height=0.95, rotation_deg=(0, 0, 20))
@@ -320,7 +330,11 @@ def _build_lokasi_4_gorong_gorong(mats: dict, handles: SceneHandles) -> None:
     make_beveled_box("L4_Ceiling", (26.0, 24.0, 1.0), w_to_b(0, -5.0, 45.5), col, mats["vault_stone"], bevel_width=0.06)
     make_beveled_box("L4_Wall_L", (1.2, 26.0, 21.0), w_to_b(-12.5, -15.0, 45.5), col, mats["vault_stone"], bevel_width=0.06)
     make_beveled_box("L4_Wall_R", (1.2, 26.0, 21.0), w_to_b(12.5, -15.0, 45.5), col, mats["vault_stone"], bevel_width=0.06)
-    make_beveled_box("L4_Wall_Back", (26.0, 1.2, 21.0), w_to_b(0, -15.0, 58.0), col, mats["vault_stone"], bevel_width=0.06)
+    # Dinding belakang berlorong terbuka (portal z=58 -> cerobong z=62) agar Bima & kunci TIDAK menembus tembok di [CAM 19]!
+    make_beveled_box("L4_Wall_Back_L", (8.8, 1.2, 21.0), w_to_b(-8.6, -15.0, 58.0), col, mats["vault_stone"], bevel_width=0.06)
+    make_beveled_box("L4_Wall_Back_R", (8.8, 1.2, 21.0), w_to_b(8.6, -15.0, 58.0), col, mats["vault_stone"], bevel_width=0.06)
+    make_beveled_box("L4_Wall_Back_Top", (8.6, 1.2, 6.2), w_to_b(0.0, -7.8, 58.0), col, mats["vault_stone"], bevel_width=0.06)
+    make_beveled_box("L4_ChimneyDuctFloor", (8.2, 6.0, 0.8), w_to_b(0.0, -19.8, 59.5), col, mats["iron_dark"], bevel_width=0.06)
     make_beveled_box("L4_Wall_Front", (26.0, 1.2, 21.0), w_to_b(0, -15.0, 33.0), col, mats["vault_stone"], bevel_width=0.06)
 
     for pz in (38.0, 46.5, 54.0):
@@ -479,8 +493,57 @@ def _build_lokasi_6_menara_jam(mats: dict, handles: SceneHandles) -> None:
     )
 
 
+def _build_cinematic_sunbeams(mats: dict, handles: SceneHandles) -> None:
+    """
+    Bangun Cinematic Sunlight Beams (God Rays) di seluruh 6 lokasi mengikuti sudut matahari tiap fase:
+      - Lokasi 1: Sinar emas Low Sun menyelinap miring menembus jendela bengkel loteng
+      - Lokasi 2: Bilah cahaya pagi memotong antar bangunan Mediterania & pasar rempah
+      - Lokasi 3: Bilah cahaya miring memotong gang kafe teduh menuju Oren & cobblestone
+      - Lokasi 4: Sorotan sinar oranye menyala naik dari tungku mesin melewati roda gigi raksasa
+      - Lokasi 5: Sinar crimson-gold senja rendah menyapu stasiun trem & lompatan Bima ([CAM 24])
+      - Lokasi 6: Sinar twilight cyan-gold menyinari Menara Jam Venesia & pelabuhan ([CAM 26])
+    """
+    col = get_or_create_collection("Atmosphere_Sunbeams_Hills")
+
+    # 1. Lokasi 1 — Sinar emas menyelinap lewat jendela loteng (z_fwd=4.2) ke meja kerja!
+    make_sunlight_beam_3d("Beam_L1_WinA", w_to_b(1.4, 28.9, 5.2), w_to_b(-0.6, 25.8, 0.9), 0.72, 1.35, col, mats["beam_low_sun"])
+    make_sunlight_beam_3d("Beam_L1_WinB", w_to_b(0.5, 28.6, 5.1), w_to_b(-1.3, 25.9, 1.3), 0.52, 1.05, col, mats["beam_low_sun"])
+
+    # 2. Lokasi 2 — Sinar matahari memotong di atas kanopi pasar & awan kunyit
+    make_sunlight_beam_3d("Beam_L2_MarketA", w_to_b(6.5, 25.5, 9.0), w_to_b(-0.5, 13.5, 13.5), 1.45, 2.8, col, mats["beam_low_sun"])
+    make_sunlight_beam_3d("Beam_L2_MarketB", w_to_b(6.0, 22.5, 14.5), w_to_b(-0.8, 11.8, 18.2), 1.35, 2.6, col, mats["beam_low_sun"])
+
+    # 3. Lokasi 3 — Bilah cahaya emas tajam memotong gang kafe teduh ([CAM 11]-[CAM 14])!
+    make_sunlight_beam_3d("Beam_L3_AlleyA", w_to_b(4.2, 15.5, 34.0), w_to_b(-1.0, 4.9, 36.6), 0.95, 1.85, col, mats["beam_low_sun"])
+    make_sunlight_beam_3d("Beam_L3_AlleyB", w_to_b(4.0, 15.0, 39.5), w_to_b(-0.8, 4.9, 42.2), 0.95, 1.80, col, mats["beam_low_sun"])
+
+    # 4. Lokasi 4 — Sorotan cahaya tungku oranye naik melewati celah roda gigi raksasa!
+    make_sunlight_beam_3d("Beam_L4_FurnaceA", w_to_b(0.0, -19.0, 49.5), w_to_b(-4.5, -8.0, 41.0), 1.6, 3.8, col, mats["beam_furnace"])
+    make_sunlight_beam_3d("Beam_L4_FurnaceB", w_to_b(0.0, -19.0, 49.5), w_to_b(4.2, -7.5, 41.5), 1.6, 3.8, col, mats["beam_furnace"])
+
+    # 5. Lokasi 5 — Sinar Crimson-Gold ultra-rendah menyapu stasiun trem & belakang lompatan Bima!
+    for ci, (orig, tgt, r0, r1) in enumerate([
+        (w_to_b(-24.0, 24.5, 132.0), w_to_b(5.0, 9.8, 86.0), 2.4, 5.2),
+        (w_to_b(-26.0, 26.5, 145.0), w_to_b(4.0, 11.0, 98.0), 2.8, 5.8),
+        (w_to_b(-28.0, 28.0, 165.0), w_to_b(2.0, 14.5, 108.0), 3.4, 6.8),
+    ]):
+        cb = make_sunlight_beam_3d(f"Beam_L5_Crimson_{ci}", orig, tgt, r0, r1, col, mats["beam_crimson"])
+        handles.crimson_beams.append(cb)
+
+    # 6. Lokasi 6 — Sinar Frozen Twilight Cyan-Gold menyinari Menara Jam & pelabuhan!
+    for ti, (orig, tgt, r0, r1) in enumerate([
+        (w_to_b(-28.0, 34.0, 145.0), w_to_b(6.0, 12.0, 112.0), 2.8, 6.2),
+        (w_to_b(-24.0, 32.0, 138.0), w_to_b(14.0, 8.0, 102.0), 2.4, 5.5),
+    ]):
+        tb = make_sunlight_beam_3d(f"Beam_L6_Twilight_{ti}", orig, tgt, r0, r1, col, mats["beam_twilight"])
+        handles.twilight_beams.append(tb)
+
+    # Lanskap Perbukitan Pesisir Berlapis + Kabut Lembah mengisi seluruh latar horizon!
+    make_coastal_hills_backdrop_3d(col, mats)
+
+
 def build_all_6_locations(mats: dict) -> SceneHandles:
-    """Bangun seluruh 6 lokasi 3D terpadu berbasis referensi nyata + Poly Haven CC0 models."""
+    """Bangun seluruh 6 lokasi 3D terpadu berbasis referensi nyata + Poly Haven CC0 + Perbukitan + Sunbeams."""
     handles = SceneHandles()
     _build_lokasi_1_bengkel(mats, handles)
     _build_lokasi_2_pasar(mats, handles)
@@ -488,4 +551,5 @@ def build_all_6_locations(mats: dict) -> SceneHandles:
     _build_lokasi_4_gorong_gorong(mats, handles)
     _build_lokasi_5_stasiun_trem(mats, handles)
     _build_lokasi_6_menara_jam(mats, handles)
+    _build_cinematic_sunbeams(mats, handles)
     return handles

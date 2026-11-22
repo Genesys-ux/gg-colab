@@ -43,6 +43,9 @@ def animate_dynamic_world(handles: SceneHandles) -> None:
         set(range(1, TOTAL_FRAMES + 1, 2))
         | {1, TOTAL_FRAMES}
         | set(range(1, 30))
+        | set(range(142, 180))   # [CAM 03] cangkir teh bergetar saat dipantul kunci
+        | set(range(325, 360))   # [CAM 07] kanopi merah memantul elastis
+        | set(range(435, 468))   # [CAM 09] karung kunyit penyok meledak
         | set(range(950, 1020))
         | set(range(1545, 1590))
         | set(range(1655, 1741))
@@ -175,3 +178,53 @@ def animate_dynamic_world(handles: SceneHandles) -> None:
         if handles.crimson_sun_orb is not None:
             sc_sun = 1.0 if (38.0 <= t <= 52.2) else 0.001
             _set_obj_xform(handles.crimson_sun_orb, w_to_b(-30.0, 29.0, 192.0), scale=(sc_sun, sc_sun, sc_sun), frame=fr)
+
+        # 7. INTERAKSI PROPERTI FISIK REAKTIF (cangkir teh bergetar, kanopi memantul, karung kunyit penyok!)
+        if handles.hero_teacup is not None:
+            # Kunci Emas memantul dari pinggir cangkir teh tepat pada t=4.92s ([CAM 03]!)
+            if 4.90 <= t <= 6.20:
+                dt = t - 4.90
+                rock = math.sin(dt * 28.0) * math.exp(-dt * 3.8) * 9.5
+                _set_obj_xform(handles.hero_teacup, w_to_b(0.55, 26.09, 1.55), rot_deg=(rock * 0.5, rock, 0.0), frame=fr)
+            elif fr in (1, 140, 200):
+                _set_obj_xform(handles.hero_teacup, w_to_b(0.55, 26.09, 1.55), rot_deg=(0.0, 0.0, 0.0), frame=fr)
+
+        if handles.hero_red_canopy is not None:
+            # Kanopi merah melesak & melenting elastis saat kunci menghantamnya di t=11.0s ([CAM 07]!)
+            if 10.95 <= t <= 12.10:
+                dt = t - 10.95
+                dip = -math.sin(dt * 14.0) * math.exp(-dt * 4.2) * 0.14
+                _set_obj_xform(
+                    handles.hero_red_canopy, w_to_b(0.0, 14.2, 10.8),
+                    rot_deg=(0.0, 0.0, 4.0),
+                    scale=(1.0 - dip * 0.35, 1.0 - dip * 0.35, 1.0 + dip),
+                    frame=fr,
+                )
+            elif fr in (1, 324, 370):
+                _set_obj_xform(handles.hero_red_canopy, w_to_b(0.0, 14.2, 10.8), rot_deg=(0.0, 0.0, 4.0), scale=(1.0, 1.0, 1.0), frame=fr)
+
+        if handles.hero_turmeric_sack is not None:
+            # Karung kunyit penyok & bergetar saat dihantam kunci di t=14.6s ([CAM 09]!)
+            if 14.55 <= t <= 15.80:
+                dt = t - 14.55
+                sq = math.sin(dt * 18.0) * math.exp(-dt * 4.5) * 0.22
+                sx = 1.05 * (1.0 + abs(sq) * 0.65)
+                sz = 1.05 * (1.0 - abs(sq) * 0.72)
+                _set_obj_xform(
+                    handles.hero_turmeric_sack, w_to_b(0.25, 12.0, 16.9),
+                    rot_deg=(sq * 18.0, -sq * 14.0, 0.0),
+                    scale=(sx, sx, sz),
+                    frame=fr,
+                )
+            elif fr in (1, 434, 480):
+                _set_obj_xform(handles.hero_turmeric_sack, w_to_b(0.25, 12.0, 16.9), rot_deg=(0.0, 0.0, 0.0), scale=(1.05, 1.05, 1.05), frame=fr)
+
+        # 8. Transisi Cinematic Sunbeams Fase 3A Crimson -> Fase 3B Twilight
+        c_beam_vis = 1.0 if (38.0 <= t <= 52.0) else 0.001
+        t_beam_vis = 1.0 if (t >= 51.8) else 0.001
+        for cb in handles.crimson_beams:
+            cb.scale = Vector((c_beam_vis, c_beam_vis, c_beam_vis))
+            cb.keyframe_insert(data_path="scale", frame=fr)
+        for tb in handles.twilight_beams:
+            tb.scale = Vector((t_beam_vis, t_beam_vis, t_beam_vis))
+            tb.keyframe_insert(data_path="scale", frame=fr)

@@ -639,10 +639,53 @@ def test_full_mock_bpy_build() -> None:
         cast_mgr.update_for_frame(fr, quantize_deg=4.0)
 
     assert len(cast_mgr._disk_cache) >= 15, f"Sprite karakter asli terlalu sedikit ({len(cast_mgr._disk_cache)})"
+
+    # Verifikasi keberadaan Perbukitan + Kabut + Cinematic Sunlight Beams
+    for req_obj in ("BG_Hill_Near_L1", "BG_Hill_Far_Center", "BG_ValleyMist_0", "Beam_L1_WinA", "Beam_L3_AlleyA", "Beam_L5_Crimson_0", "Beam_L6_Twilight_0"):
+        assert req_obj in bpy.data.objects._items, f"Objek atmosfer '{req_obj}' tidak ditemukan!"
+
+    # Audit bebas-tabrakan (collision-free) di seluruh 1.740 frame!
+    from blender_pipeline.camera_28_moves import eval_camera_world, eval_golden_key_world
+    from blender_pipeline.characters_25d_exact import eval_bima_world_pos
+    from blender_pipeline.config import TOTAL_FRAMES, frame_to_sec
+
+    for fr in range(1, TOTAL_FRAMES + 1):
+        t = frame_to_sec(fr)
+        bp = eval_bima_world_pos(t)
+        if bp is not None:
+            bx, by, bz = bp
+            if t < 8.5:
+                assert bz > 2.45 and by >= 24.98, f"L1 Bima menembus meja kerja pada t={t:.2f}: {bp}"
+            elif 14.6 <= t < 15.8:
+                assert by >= 12.0, f"L2 Bima menembus lantai teras pada t={t:.2f}: {bp}"
+            elif 15.8 <= t < 18.2:
+                stair_y = 11.4 - (bz - 19.6) * (6.4 / 8.0)
+                assert by >= stair_y - 0.08, f"L2 Bima menembus tangga pada t={t:.2f}: {bp} vs stair_y={stair_y:.2f}"
+            elif 18.2 <= t < 25.2:
+                assert -1.15 <= bx <= 1.15 and by >= 4.99, f"L3 Bima menembus dinding gang pada t={t:.2f}: {bp}"
+            elif 33.8 <= t < 38.2:
+                if by > -11.5:
+                    assert abs(bz - 62.0) < 3.5, f"L4 Bima menembus dinding cerobong pada t={t:.2f}: {bp}"
+                else:
+                    assert abs(bx) < 3.6 and -19.0 < by < -11.2, f"L4 Bima di luar portal lorong pada t={t:.2f}: {bp}"
+            elif 40.6 <= t < 46.2:
+                assert by >= 13.53, f"L5 Bima menembus atap Trem Lisbon pada t={t:.2f}: {bp}"
+            elif t >= 49.2:
+                assert by >= 15.44 and 115.80 <= bz <= 117.75, f"L6 Bima di luar balkon Menara Jam pada t={t:.2f}: {bp}"
+
+        # Audit Kunci Emas & Kamera [CAM 19] bebas dinding cerobong Lokasi 4
+        if 34.0 <= t < 38.0:
+            kp, _, _ = eval_golden_key_world(t)
+            if kp[1] > -11.5:
+                assert abs(kp[2] - 62.0) < 3.6, f"L4 Kunci Emas menembus cerobong pada t={t:.2f}: {kp}"
+            cam = eval_camera_world(t)
+            if cam.eye_w[1] > -11.5:
+                assert abs(cam.eye_w[2] - 62.0) < 3.8, f"L4 Kamera CAM 19 menembus cerobong pada t={t:.2f}: {cam.eye_w}"
+
     print(
-        f"[OK] Full Mock-bpy v2 Dry-Run SUKSES 100%! "
-        f"({n_objs} objek 3D arsitektur/botani referensi nyata, {n_mats} material Cel-PBR, "
-        f"{len(cast_mgr.actors)} aktor exact Preview-1, {len(cast_mgr._disk_cache)} sprite RGBA terverifikasi -> {os.path.basename(blend_path)})"
+        f"[OK] Full Mock-bpy v2 Dry-Run + Audit Collision-Free 1.740 Frame SUKSES 100%! "
+        f"({n_objs} objek 3D arsitektur/botani/perbukitan/sunbeams, {n_mats} material Cel-PBR, "
+        f"{len(cast_mgr.actors)} aktor exact Preview-1, {len(cast_mgr._disk_cache)} sprite RGBA -> {os.path.basename(blend_path)})"
     )
 
 
