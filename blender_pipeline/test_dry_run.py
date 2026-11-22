@@ -633,10 +633,30 @@ def test_full_mock_bpy_build() -> None:
     assert n_mats > 75, f"Terlalu sedikit material Cel-PBR ({n_mats})"
     assert len(cast_mgr.actors) == 11, f"Harus ada 11 aktor exact Preview 1, dapat {len(cast_mgr.actors)}"
 
-    # Uji render sprite RGBA asli Preview 1 untuk seluruh 12 keyframe preview!
-    for fname, t_sec, _, _ in HERO_PREVIEW_SHOTS:
-        fr = sec_to_frame(t_sec)
-        cast_mgr.update_for_frame(fr, quantize_deg=4.0)
+    # Uji render sprite RGBA asli Preview 1 untuk seluruh 12 keyframe preview + guard head_tilt dalam RADIAN!
+    sprites_inst = cast_mgr._ensure_sprite_cache()
+    orig_rb = sprites_inst.render_bima
+    orig_ro = sprites_inst.render_oren
+
+    def _checked_rb(rig, *a, **kw):
+        if rig is not None and rig.head_tilt is not None:
+            assert abs(float(rig.head_tilt)) <= 0.35, f"Bima head_tilt={rig.head_tilt} bukan radian!"
+        return orig_rb(rig, *a, **kw)
+
+    def _checked_ro(rig, *a, **kw):
+        if rig is not None and rig.head_tilt is not None:
+            assert abs(float(rig.head_tilt)) <= 0.35, f"Oren head_tilt={rig.head_tilt} bukan radian!"
+        return orig_ro(rig, *a, **kw)
+
+    sprites_inst.render_bima = _checked_rb
+    sprites_inst.render_oren = _checked_ro
+    try:
+        for fname, t_sec, _, _ in HERO_PREVIEW_SHOTS:
+            fr = sec_to_frame(t_sec)
+            cast_mgr.update_for_frame(fr, quantize_deg=4.0)
+    finally:
+        sprites_inst.render_bima = orig_rb
+        sprites_inst.render_oren = orig_ro
 
     assert len(cast_mgr._disk_cache) >= 15, f"Sprite karakter asli terlalu sedikit ({len(cast_mgr._disk_cache)})"
 

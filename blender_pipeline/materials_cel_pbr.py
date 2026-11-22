@@ -747,12 +747,19 @@ def create_soft_cloud_material(name: str, color_hex: str, density_alpha: float =
     return mat
 
 
-def create_sunbeam_material(name: str, color_hex: str, intensity: float = 0.24, glow: float = 1.8) -> "bpy.types.Material":
+def create_sunbeam_material(
+    name: str,
+    color_hex: str,
+    intensity: float = 0.28,
+    glow: float = 1.85,
+    core_hex: Optional[str] = None,
+) -> "bpy.types.Material":
     """
-    Material Cinematic Volumetric Sunlight Beam (God Ray) super cepat di Cycles OPTIX:
-      - Tepi radial lembut via (1 - Facing)^3.0 (nol tepi kerucut keras!)
-      - Pudar memanjang lembut dari sumber cahaya ke ujung sinar via Generated.Z
-      - Hanya terlihat pada Camera Ray (nol bayangan palsu & nol beban GI bounce!)
+    Material Cartoon Sunlight Rays (Gaya Animasi 2D/3D Stylized ala Ghibli / Klaus):
+      - Bilah sinar bergaris tegas dengan 2-tone cel band (inti terang krem + pinggir warna emas/crimson/cyan)
+      - Menggunakan UV pita (X = lebar bilah, Y = panjang sinar) sehingga TIDAK menjadi kabut buram!
+      - Celah di antara tiap bilah sinar 100% bening agar latar & karakter tetap tajam dan cerah
+      - Hanya terlihat pada Camera Ray (nol bayangan palsu & nol beban GI bounce di Cycles OPTIX!)
     """
     existing = bpy.data.materials.get(name)
     if existing is not None:
@@ -761,84 +768,144 @@ def create_sunbeam_material(name: str, color_hex: str, intensity: float = 0.24, 
     mat.use_nodes = True
     if hasattr(mat, "surface_render_method"):
         mat.surface_render_method = "BLENDED"
+    if hasattr(mat, "use_backface_culling"):
+        mat.use_backface_culling = False
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     nodes.clear()
 
+    tc = nodes.new("ShaderNodeTexCoord")
+    tc.location = (-1180, 40)
+    sep = nodes.new("ShaderNodeSeparateXYZ")
+    sep.location = (-980, 40)
+    links.new(tc.outputs["UV"], sep.inputs["Vector"])
+
+    # 1. Profil melintang bilah sinar gaya KARTUN: dist_center = |u - 0.5| * 2.0 (0 = tengah, 1 = tepi bilah)
+    sub_u = nodes.new("ShaderNodeMath")
+    sub_u.operation = "SUBTRACT"
+    sub_u.inputs[1].default_value = 0.5
+    sub_u.location = (-780, 220)
+    links.new(sep.outputs["X"], sub_u.inputs[0])
+
+    abs_u = nodes.new("ShaderNodeMath")
+    abs_u.operation = "ABSOLUTE"
+    abs_u.location = (-600, 220)
+    links.new(sub_u.outputs["Value"], abs_u.inputs[0])
+
+    d_center = nodes.new("ShaderNodeMath")
+    d_center.operation = "MULTIPLY"
+    d_center.inputs[1].default_value = 2.0
+    d_center.use_clamp = True
+    d_center.location = (-420, 220)
+    links.new(abs_u.outputs["Value"], d_center.inputs[0])
+
+    # 2-Step Cel-Shaded Width Profile: inti datar tegas -> pita luar cel -> tepi grafis tajam (BUKAN kabut buram!)
+    w_ramp = nodes.new("ShaderNodeValToRGB")
+    w_ramp.location = (-220, 260)
+    wcr = w_ramp.color_ramp
+    wcr.elements[0].position = 0.0
+    wcr.elements[0].color = (1.0, 1.0, 1.0, 1.0)
+    wcr.elements[1].position = 0.52
+    wcr.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+    we2 = wcr.elements.new(0.58)
+    we2.color = (0.58, 0.58, 0.58, 1.0)
+    we3 = wcr.elements.new(0.84)
+    we3.color = (0.54, 0.54, 0.54, 1.0)
+    we4 = wcr.elements.new(0.92)
+    we4.color = (0.0, 0.0, 0.0, 1.0)
+    links.new(d_center.outputs["Value"], w_ramp.inputs["Fac"])
+
+    # 2-Tone Cartoon Color Split: inti lebih terang krem-putih + tepi warna fase (emas / oranye / crimson / cyan)
+    c_ramp = nodes.new("ShaderNodeValToRGB")
+    c_ramp.location = (-220, 480)
+    ccr = c_ramp.color_ramp
+    ccr.elements[0].position = 0.48
+    ccr.elements[0].color = hex_to_linear_rgba(core_hex or "#FFF9D4")
+    ccr.elements[1].position = 0.62
+    ccr.elements[1].color = hex_to_linear_rgba(color_hex)
+    links.new(d_center.outputs["Value"], c_ramp.inputs["Fac"])
+
+    # 2. Profil memanjang sinar (v=1 di sumber atas terang -> meruncing pudar bersih di v=0 ujung bawah)
+    l_ramp = nodes.new("ShaderNodeValToRGB")
+    l_ramp.location = (-220, -20)
+    lcr = l_ramp.color_ramp
+    lcr.elements[0].position = 0.0
+    lcr.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+    lcr.elements[1].position = 0.22
+    lcr.elements[1].color = (0.38, 0.38, 0.38, 1.0)
+    le2 = lcr.elements.new(0.55)
+    le2.color = (0.78, 0.78, 0.78, 1.0)
+    le3 = lcr.elements.new(0.84)
+    le3.color = (1.0, 1.0, 1.0, 1.0)
+    le4 = lcr.elements.new(0.96)
+    le4.color = (0.82, 0.82, 0.82, 1.0)
+    le5 = lcr.elements.new(1.0)
+    le5.color = (0.0, 0.0, 0.0, 1.0)
+    links.new(sep.outputs["Y"], l_ramp.inputs["Fac"])
+
+    # 3. Sembunyikan HANYA bilah yang sejajar tipis terhadap mata kamera (agar cross-blade selalu tajam dari 360°!)
     lw = nodes.new("ShaderNodeLayerWeight")
-    lw.inputs["Blend"].default_value = 0.42
-    lw.location = (-860, 140)
+    lw.inputs["Blend"].default_value = 0.35
+    lw.location = (-600, -240)
     inv_f = nodes.new("ShaderNodeMath")
     inv_f.operation = "SUBTRACT"
     inv_f.inputs[0].default_value = 1.0
     inv_f.use_clamp = True
-    inv_f.location = (-660, 140)
+    inv_f.location = (-400, -240)
     links.new(lw.outputs["Facing"], inv_f.inputs[1])
 
-    edge_pw = nodes.new("ShaderNodeMath")
-    edge_pw.operation = "POWER"
-    edge_pw.inputs[1].default_value = 2.8
-    edge_pw.use_clamp = True
-    edge_pw.location = (-460, 140)
-    links.new(inv_f.outputs["Value"], edge_pw.inputs[0])
+    ang_gate = nodes.new("ShaderNodeMath")
+    ang_gate.operation = "POWER"
+    ang_gate.inputs[1].default_value = 0.65
+    ang_gate.use_clamp = True
+    ang_gate.location = (-200, -240)
+    links.new(inv_f.outputs["Value"], ang_gate.inputs[0])
 
-    # Pudar halus sepanjang batang sinar (terang dekat sumber atas Z=1 -> pudar habis di ujung Z=0)
-    tc = nodes.new("ShaderNodeTexCoord")
-    tc.location = (-860, -140)
-    sep = nodes.new("ShaderNodeSeparateXYZ")
-    sep.location = (-660, -140)
-    links.new(tc.outputs["Generated"], sep.inputs["Vector"])
+    mul_wl = nodes.new("ShaderNodeMath")
+    mul_wl.operation = "MULTIPLY"
+    mul_wl.use_clamp = True
+    mul_wl.location = (40, 120)
+    links.new(w_ramp.outputs["Color"], mul_wl.inputs[0])
+    links.new(l_ramp.outputs["Color"], mul_wl.inputs[1])
 
-    # Ramp longitudinal lembut (pudar di kedua ujung agar tidak terpotong tajam)
-    l_ramp = nodes.new("ShaderNodeValToRGB")
-    l_ramp.location = (-460, -140)
-    cr = l_ramp.color_ramp
-    cr.elements[0].position = 0.0
-    cr.elements[0].color = (0.0, 0.0, 0.0, 1.0)
-    cr.elements[1].position = 0.82
-    cr.elements[1].color = (1.0, 1.0, 1.0, 1.0)
-    e_top = cr.elements.new(1.0)
-    e_top.color = (0.15, 0.15, 0.15, 1.0)
-    links.new(sep.outputs["Z"], l_ramp.inputs["Fac"])
+    mul_ang = nodes.new("ShaderNodeMath")
+    mul_ang.operation = "MULTIPLY"
+    mul_ang.use_clamp = True
+    mul_ang.location = (200, 40)
+    links.new(mul_wl.outputs["Value"], mul_ang.inputs[0])
+    links.new(ang_gate.outputs["Value"], mul_ang.inputs[1])
 
-    mul_1 = nodes.new("ShaderNodeMath")
-    mul_1.operation = "MULTIPLY"
-    mul_1.use_clamp = True
-    mul_1.location = (-220, 40)
-    links.new(edge_pw.outputs["Value"], mul_1.inputs[0])
-    links.new(l_ramp.outputs["Color"], mul_1.inputs[1])
-
-    mul_2 = nodes.new("ShaderNodeMath")
-    mul_2.operation = "MULTIPLY"
-    mul_2.inputs[1].default_value = intensity
-    mul_2.use_clamp = True
-    mul_2.location = (-40, 40)
-    links.new(mul_1.outputs["Value"], mul_2.inputs[0])
+    mul_int = nodes.new("ShaderNodeMath")
+    mul_int.operation = "MULTIPLY"
+    mul_int.inputs[1].default_value = intensity
+    mul_int.use_clamp = True
+    mul_int.location = (360, 40)
+    links.new(mul_ang.outputs["Value"], mul_int.inputs[0])
 
     lp = nodes.new("ShaderNodeLightPath")
-    lp.location = (-220, -220)
+    lp.location = (180, -220)
     cam_gate = nodes.new("ShaderNodeMath")
     cam_gate.operation = "MULTIPLY"
     cam_gate.use_clamp = True
-    cam_gate.location = (140, -20)
-    links.new(mul_2.outputs["Value"], cam_gate.inputs[0])
+    cam_gate.location = (520, -20)
+    links.new(mul_int.outputs["Value"], cam_gate.inputs[0])
     links.new(lp.outputs["Is Camera Ray"], cam_gate.inputs[1])
 
     transp = nodes.new("ShaderNodeBsdfTransparent")
-    transp.location = (140, 200)
+    transp.location = (520, 220)
     em = nodes.new("ShaderNodeEmission")
-    em.location = (140, 80)
-    em.inputs["Color"].default_value = hex_to_linear_rgba(color_hex)
+    em.location = (520, 100)
     em.inputs["Strength"].default_value = glow
+    links.new(c_ramp.outputs["Color"], em.inputs["Color"])
 
     mix_sh = nodes.new("ShaderNodeMixShader")
-    mix_sh.location = (380, 100)
+    mix_sh.location = (740, 120)
     links.new(cam_gate.outputs["Value"], mix_sh.inputs["Fac"])
     links.new(transp.outputs["BSDF"], mix_sh.inputs[1])
     links.new(em.outputs["Emission"], mix_sh.inputs[2])
 
     out_n = nodes.new("ShaderNodeOutputMaterial")
-    out_n.location = (600, 100)
+    out_n.location = (940, 120)
     links.new(mix_sh.outputs["Shader"], out_n.inputs["Surface"])
     return mat
 
@@ -923,10 +990,10 @@ def create_material_library(render_engine: str = "CYCLES") -> Dict[str, "bpy.typ
         "fx_emerald_steam": create_soft_cloud_material("MAT_FX_Emerald_Steam", "#2AE2A4", 0.48, 0.95),
         "fx_gold_dust": create_soft_cloud_material("MAT_FX_Gold_Dust", "#FFE89A", 0.78, 1.8),
         "fx_valley_mist": create_soft_cloud_material("MAT_FX_Valley_Mist", "#F6E8D8", 0.36, 0.55),
-        "beam_low_sun": create_sunbeam_material("MAT_Beam_LowSun", "#FFE296", 0.24, 2.2),
-        "beam_furnace": create_sunbeam_material("MAT_Beam_Furnace", "#FF7E30", 0.22, 2.4),
-        "beam_crimson": create_sunbeam_material("MAT_Beam_Crimson", "#FF8C46", 0.24, 2.4),
-        "beam_twilight": create_sunbeam_material("MAT_Beam_Twilight", "#8EEAFF", 0.20, 2.1),
+        "beam_low_sun": create_sunbeam_material("MAT_Beam_LowSun", "#FFD15C", 0.30, 1.95, core_hex="#FFFAD4"),
+        "beam_furnace": create_sunbeam_material("MAT_Beam_Furnace", "#FF6E24", 0.28, 2.20, core_hex="#FFD598"),
+        "beam_crimson": create_sunbeam_material("MAT_Beam_Crimson", "#FF6840", 0.30, 2.15, core_hex="#FFE0B0"),
+        "beam_twilight": create_sunbeam_material("MAT_Beam_Twilight", "#68E4FF", 0.26, 2.00, core_hex="#DCFCFF"),
         # --- Perbukitan Pesisir Mediterania Berlapis (Background) ---
         "hill_olive": mcel("MAT_Hill_Olive", "#5A7A4A", "peeling_plaster", None, 0.0, 0.88, 0.15, 0.28, 0.65),
         "hill_terracotta": mcel("MAT_Hill_Terracotta", "#8E7A56", "peeling_plaster", None, 0.0, 0.90, 0.12, 0.28, 0.60),

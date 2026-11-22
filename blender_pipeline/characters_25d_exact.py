@@ -34,6 +34,7 @@ from .config import OUTPUT_DIR, frame_to_sec, w_to_b
 from .mesh_utils import get_or_create_collection, link_object
 
 SPRITE_DISK_DIR = os.path.join(OUTPUT_DIR, "blender_sprites_exact")
+SPRITE_CACHE_VER = "v3"
 
 
 def _lighting_phase_at(t: float) -> str:
@@ -78,9 +79,9 @@ def eval_bima_world_pos(t: float) -> Optional[Tuple[float, float, float]]:
     """
     tram_z = eval_tram_z_fwd(t)
     if t < 8.5:
-        # Lokasi 1: Berdiri tepat di BELAKANG meja kerja oak (z=0.70..2.40), kaki menapak lantai loteng (y=25.00)
+        # Lokasi 1: Berdiri mantap di atas pijakan kayu tukang jam (top y=25.32) di BELAKANG meja oak (z=0.70..2.40)!
         recoil = math.sin(clamp((t - 4.2) / 3.2) * math.pi) * 0.08
-        return (-0.10 + recoil, 25.00, 2.68)
+        return (-0.10 + recoil, 25.32, 2.68)
     if 11.2 <= t < 18.2:
         # Lokasi 2: Jalur parkour bertingkat (Kanopi Merah -> Kanopi Teal -> Teras -> Tangga diagonal -> Gang)
         if t < 12.8:
@@ -251,7 +252,7 @@ class ExactCharacterCastManager:
             fp = self._disk_cache.get(cache_key)
             if fp is None or not os.path.exists(fp):
                 safe_name = "".join(c if (c.isalnum() or c in "_-") else "_" for c in cache_key)
-                fp = os.path.join(SPRITE_DISK_DIR, f"{safe_name}.png")
+                fp = os.path.join(SPRITE_DISK_DIR, f"{SPRITE_CACHE_VER}_{safe_name}.png")
                 pil_img.save(fp, format="PNG")
                 self._disk_cache[cache_key] = fp
             bpy_img = bpy.data.images.load(fp, check_existing=True)
@@ -396,7 +397,8 @@ class ExactCharacterCastManager:
                 hand_y = int(round(lerp(174, 218, reach_u) / 8.0) * 8)
                 scarf_s = round(-10.0 - reach_u * 12.0 + math.sin(t * 7.0) * 3.0, 0)
                 jambul_s = round(-6.0 + math.sin(t * 8.0) * 4.0, 0)
-                htilt = round(lerp(-5.0, 9.0, reach_u), 0)
+                # CATATAN: head_tilt pada Bima/Oren dalam satuan RADIAN (maks ~±0.12 rad = ±7°)!
+                htilt = round(lerp(-0.07, 0.09, reach_u), 2)
                 bima_sq_x = 1.0 - math.sin(reach_u * math.pi) * 0.04
                 bima_sq_z = 1.0 + math.sin(reach_u * math.pi) * 0.05
                 bima_rig = HumanoidRig(
@@ -432,7 +434,7 @@ class ExactCharacterCastManager:
                         mouth="grit_teeth",
                         eye_gaze_x=gx,
                         eye_gaze_y=gy,
-                        head_tilt=round(lerp(-6.0, 6.0, u_arc), 0),
+                        head_tilt=round(lerp(-0.08, 0.08, u_arc), 2),
                         scarf_sway=-28.0,
                         jambul_sway=10.0,
                     )
@@ -467,7 +469,7 @@ class ExactCharacterCastManager:
                         sweat_drop=True,
                         eye_gaze_x=gx,
                         eye_gaze_y=gy,
-                        head_tilt=8.0,
+                        head_tilt=0.09,
                         right_hand_target=(96, 198, 44),
                         left_hand_target=(-64, 245, 22),
                         scarf_sway=-34.0,
@@ -495,7 +497,7 @@ class ExactCharacterCastManager:
                     eyebrows="raised",
                     mouth="open_yell",
                     sweat_drop=True,
-                    head_tilt=round(math.sin(u * 6.0) * 10.0, 0),
+                    head_tilt=round(math.sin(u * 6.0) * 0.11, 2),
                     right_hand_target=(86, 154, 34),
                     left_hand_target=(-84, 158, 34),
                     scarf_sway=28.0,
@@ -534,7 +536,7 @@ class ExactCharacterCastManager:
                         mouth="open_yell",
                         eye_gaze_x=gx,
                         eye_gaze_y=gy,
-                        head_tilt=round(lerp(-6.0, 8.0, u), 0),
+                        head_tilt=round(lerp(-0.07, 0.09, u), 2),
                         right_hand_target=(96, 158, 42),
                         left_hand_target=(-74, 198, 22),
                         left_foot_target=(-26, 404, -22),
@@ -556,7 +558,7 @@ class ExactCharacterCastManager:
                         eyebrows="raised",
                         mouth="grit_teeth",
                         torso_lean_z=0.10,
-                        head_tilt=round(lerp(-4.0, 5.0, u_turn), 0),
+                        head_tilt=round(lerp(-0.05, 0.06, u_turn), 2),
                         right_hand_target=(hand_rx, hand_ry, 44),
                         left_hand_target=(-52, 235, 24),
                         scarf_sway=-14.0,
@@ -574,7 +576,7 @@ class ExactCharacterCastManager:
                         eyes="happy",
                         eyebrows="happy",
                         mouth="happy_open",
-                        head_tilt=round(math.sin(t * 2.2) * 4.0, 0),
+                        head_tilt=round(math.sin(t * 2.2) * 0.05, 2),
                         right_hand_target=(16, pat_y, 44),
                         left_hand_target=(-52, 280, 20),
                         silver_key_peek=(54.2 <= t <= 55.6),
@@ -627,7 +629,7 @@ class ExactCharacterCastManager:
             o_rig = OrenRig(
                 angle=oren_yaw,
                 body_lean=round(-0.08 * slap_amt, 2),
-                head_tilt=round(o_gx * 9.0, 0),
+                head_tilt=round(o_gx * 0.14, 2),  # RADIAN (±0.07 rad = ±4° miring arogan!)
                 ear_left_twitch=round(math.sin(t * 4.5) * 0.12 if slap_amt > 0.2 else 0.0, 1),
                 eyelid_level=0.56,
                 blink=o_blink,

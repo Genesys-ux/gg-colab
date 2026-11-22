@@ -110,6 +110,8 @@ def _build_lokasi_1_bengkel(mats: dict, handles: SceneHandles) -> None:
     for lx in (-2.05, 2.05):
         for lz in (0.85, 2.25):
             make_beveled_box(f"L1_Leg_{lx:.1f}_{lz:.1f}", (0.18, 0.18, 1.15), w_to_b(lx, 25.4, lz), col, mats["oak_dark"], bevel_width=0.025)
+    # Pijakan papan oak tukang jam di belakang meja (top y=25.32) agar dada, syal & tangan Bima tampil gagah di atas meja!
+    make_beveled_box("L1_WatchmakerStep", (1.40, 0.62, 0.34), w_to_b(-0.10, 25.15, 2.72), col, mats["oak_dark"], bevel_width=0.03, ink_mat=ink, outline_thickness=0.010)
 
     # Hero Prop Cangkir Teh Porselen + Tatakan (reaktif bergetar saat kunci memantul di [CAM 03]!)
     handles.hero_teacup = make_teacup_and_saucer_3d("L1_Hero_Teacup", w_to_b(0.55, 26.09, 1.55), col, mats["porcelain"], mats["tea_liquid"], mats["prop_red"], ink_mat=ink)
@@ -505,37 +507,37 @@ def _build_cinematic_sunbeams(mats: dict, handles: SceneHandles) -> None:
     """
     col = get_or_create_collection("Atmosphere_Sunbeams_Hills")
 
-    # 1. Lokasi 1 — Sinar emas menyelinap lewat jendela loteng (z_fwd=4.2) ke meja kerja!
-    make_sunlight_beam_3d("Beam_L1_WinA", w_to_b(1.4, 28.9, 5.2), w_to_b(-0.6, 25.8, 0.9), 0.72, 1.35, col, mats["beam_low_sun"])
-    make_sunlight_beam_3d("Beam_L1_WinB", w_to_b(0.5, 28.6, 5.1), w_to_b(-1.3, 25.9, 1.3), 0.52, 1.05, col, mats["beam_low_sun"])
+    # 1. Lokasi 1 — Berkas bilah sinar KARTUN emas masuk miring lewat jendela loteng (z_fwd=4.2) menyapu meja kerja!
+    make_sunlight_beam_3d("Beam_L1_WinA", w_to_b(1.15, 28.8, 4.35), w_to_b(-1.10, 25.85, 0.95), 0.72, 1.15, col, mats["beam_low_sun"], num_shafts=4)
+    make_sunlight_beam_3d("Beam_L1_WinB", w_to_b(-0.25, 28.7, 4.35), w_to_b(-2.10, 25.95, 1.40), 0.45, 0.75, col, mats["beam_low_sun"], num_shafts=3)
 
-    # 2. Lokasi 2 — Sinar matahari memotong di atas kanopi pasar & awan kunyit
-    make_sunlight_beam_3d("Beam_L2_MarketA", w_to_b(6.5, 25.5, 9.0), w_to_b(-0.5, 13.5, 13.5), 1.45, 2.8, col, mats["beam_low_sun"])
-    make_sunlight_beam_3d("Beam_L2_MarketB", w_to_b(6.0, 22.5, 14.5), w_to_b(-0.8, 11.8, 18.2), 1.35, 2.6, col, mats["beam_low_sun"])
+    # 2. Lokasi 2 — Bilah sinar pagi kartun miring memotong antar bangunan Mediterania & kanopi pasar
+    make_sunlight_beam_3d("Beam_L2_MarketA", w_to_b(5.8, 25.5, 9.2), w_to_b(-1.2, 14.0, 13.8), 1.35, 2.35, col, mats["beam_low_sun"], num_shafts=4)
+    make_sunlight_beam_3d("Beam_L2_MarketB", w_to_b(5.6, 22.5, 14.5), w_to_b(-1.2, 11.8, 18.6), 1.25, 2.15, col, mats["beam_low_sun"], num_shafts=4)
 
-    # 3. Lokasi 3 — Bilah cahaya emas tajam memotong gang kafe teduh ([CAM 11]-[CAM 14])!
-    make_sunlight_beam_3d("Beam_L3_AlleyA", w_to_b(4.2, 15.5, 34.0), w_to_b(-1.0, 4.9, 36.6), 0.95, 1.85, col, mats["beam_low_sun"])
-    make_sunlight_beam_3d("Beam_L3_AlleyB", w_to_b(4.0, 15.0, 39.5), w_to_b(-0.8, 4.9, 42.2), 0.95, 1.80, col, mats["beam_low_sun"])
+    # 3. Lokasi 3 — Bilah sinar kartun grafis memotong diagonal gang kafe teduh ([CAM 11]-[CAM 14])!
+    make_sunlight_beam_3d("Beam_L3_AlleyA", w_to_b(3.6, 15.2, 34.4), w_to_b(-1.4, 4.95, 36.8), 0.85, 1.45, col, mats["beam_low_sun"], num_shafts=4)
+    make_sunlight_beam_3d("Beam_L3_AlleyB", w_to_b(3.6, 14.8, 39.8), w_to_b(-1.1, 4.95, 42.2), 0.80, 1.38, col, mats["beam_low_sun"], num_shafts=4)
 
-    # 4. Lokasi 4 — Sorotan cahaya tungku oranye naik melewati celah roda gigi raksasa!
-    make_sunlight_beam_3d("Beam_L4_FurnaceA", w_to_b(0.0, -19.0, 49.5), w_to_b(-4.5, -8.0, 41.0), 1.6, 3.8, col, mats["beam_furnace"])
-    make_sunlight_beam_3d("Beam_L4_FurnaceB", w_to_b(0.0, -19.0, 49.5), w_to_b(4.2, -7.5, 41.5), 1.6, 3.8, col, mats["beam_furnace"])
+    # 4. Lokasi 4 — Sorotan bilah cahaya tungku oranye naik melewati celah roda gigi raksasa!
+    make_sunlight_beam_3d("Beam_L4_FurnaceA", w_to_b(0.0, -19.0, 49.5), w_to_b(-4.5, -8.0, 41.0), 1.45, 3.2, col, mats["beam_furnace"], num_shafts=4)
+    make_sunlight_beam_3d("Beam_L4_FurnaceB", w_to_b(0.0, -19.0, 49.5), w_to_b(4.2, -7.5, 41.5), 1.45, 3.2, col, mats["beam_furnace"], num_shafts=4)
 
-    # 5. Lokasi 5 — Sinar Crimson-Gold ultra-rendah menyapu stasiun trem & belakang lompatan Bima!
+    # 5. Lokasi 5 — Berkas bilah sinar kartun Crimson-Gold senja menyapu stasiun trem & lompatan Bima!
     for ci, (orig, tgt, r0, r1) in enumerate([
-        (w_to_b(-24.0, 24.5, 132.0), w_to_b(5.0, 9.8, 86.0), 2.4, 5.2),
-        (w_to_b(-26.0, 26.5, 145.0), w_to_b(4.0, 11.0, 98.0), 2.8, 5.8),
-        (w_to_b(-28.0, 28.0, 165.0), w_to_b(2.0, 14.5, 108.0), 3.4, 6.8),
+        (w_to_b(-24.0, 24.5, 132.0), w_to_b(5.0, 9.8, 86.0), 2.1, 4.2),
+        (w_to_b(-26.0, 26.5, 145.0), w_to_b(4.0, 11.0, 98.0), 2.4, 4.8),
+        (w_to_b(-28.0, 28.0, 165.0), w_to_b(2.0, 14.5, 108.0), 2.8, 5.6),
     ]):
-        cb = make_sunlight_beam_3d(f"Beam_L5_Crimson_{ci}", orig, tgt, r0, r1, col, mats["beam_crimson"])
+        cb = make_sunlight_beam_3d(f"Beam_L5_Crimson_{ci}", orig, tgt, r0, r1, col, mats["beam_crimson"], num_shafts=4)
         handles.crimson_beams.append(cb)
 
-    # 6. Lokasi 6 — Sinar Frozen Twilight Cyan-Gold menyinari Menara Jam & pelabuhan!
+    # 6. Lokasi 6 — Berkas bilah sinar kartun Frozen Twilight Cyan-Gold menyinari Menara Jam & pelabuhan!
     for ti, (orig, tgt, r0, r1) in enumerate([
-        (w_to_b(-28.0, 34.0, 145.0), w_to_b(6.0, 12.0, 112.0), 2.8, 6.2),
-        (w_to_b(-24.0, 32.0, 138.0), w_to_b(14.0, 8.0, 102.0), 2.4, 5.5),
+        (w_to_b(-28.0, 34.0, 145.0), w_to_b(6.0, 12.0, 112.0), 2.4, 5.0),
+        (w_to_b(-24.0, 32.0, 138.0), w_to_b(14.0, 8.0, 102.0), 2.1, 4.5),
     ]):
-        tb = make_sunlight_beam_3d(f"Beam_L6_Twilight_{ti}", orig, tgt, r0, r1, col, mats["beam_twilight"])
+        tb = make_sunlight_beam_3d(f"Beam_L6_Twilight_{ti}", orig, tgt, r0, r1, col, mats["beam_twilight"], num_shafts=4)
         handles.twilight_beams.append(tb)
 
     # Lanskap Perbukitan Pesisir Berlapis + Kabut Lembah mengisi seluruh latar horizon!
