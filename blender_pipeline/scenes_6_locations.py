@@ -305,11 +305,7 @@ def _build_lokasi_3_gang_kafe(mats: dict) -> None:
     for li, (lz, ly) in enumerate([(31.2, 8.9), (34.4, 9.2), (37.6, 8.7), (40.8, 9.1)]):
         make_smooth_cylinder(f"L3_Line_{li}", 0.022, 0.022, 7.2, w_to_b(0, ly, lz), col, mats["iron_dark"], segments=8, rotation_deg=(0, 90, 0))
         for si, sx in enumerate((-2.3, -1.1, 0.1, 1.3, 2.3)):
-            shirt = make_beveled_box(f"L3_Shirt_{li}_{si}", (0.68, 0.06, 0.95), w_to_b(sx, ly - 0.56, lz), col, shirt_mats[(si + li) % len(shirt_mats)], rotation_deg=(-10, (si - 2) * 3, 0), bevel_width=0.02, ink_mat=ink, outline_thickness=0.010)
-            wv = shirt.modifiers.new(name="LaundryBreeze", type="WAVE")
-            wv.height = 0.06
-            wv.width = 1.2
-            wv.speed = 0.14
+            make_beveled_box(f"L3_Shirt_{li}_{si}", (0.68, 0.06, 0.95), w_to_b(sx, ly - 0.56, lz), col, shirt_mats[(si + li) % len(shirt_mats)], rotation_deg=(-12, (si - 2) * 4, 0), bevel_width=0.02, ink_mat=ink, outline_thickness=0.010)
 
     # Jeruji selokan besi berkarat (lubang transisi [CAM 15] Hidden Wipe!)
     make_beveled_box("L3_SewerVoid", (1.75, 1.75, 0.25), w_to_b(0, 4.86, 42.5), col, mats["black_void"], bevel_width=0.01)

@@ -96,14 +96,20 @@ def configure_render_engine(engine_mode: str, width: int, height: int, samples: 
     scene.render.fps = FPS
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
+    if hasattr(scene.render.image_settings, "compression"):
+        scene.render.image_settings.compression = 15  # PNG cepat (hemat ~1s/frame CPU write!)
 
     if hasattr(scene, "view_layers") and len(scene.view_layers) > 0:
         vl = scene.view_layers[0]
         if hasattr(vl, "use_pass_mist"):
             vl.use_pass_mist = True
 
-    scene.render.use_motion_blur = True
-    scene.render.motion_blur_shutter = 0.28
+    # KUNCI KECEPATAN 6x: Simpan BVH 1.737 objek statis & tekstur 2K tetap di VRAM GPU antar-frame
+    # agar Cycles TIDAK membangun ulang BVH (12-15 detik/frame!) setiap kali pindah frame!
+    if hasattr(scene.render, "use_persistent_data"):
+        scene.render.use_persistent_data = True
+    # Matikan motion blur Cycles agar garis ink kartun tajam & tidak membangun multi-step motion BVH tiap frame!
+    scene.render.use_motion_blur = False
 
     eng_u = engine_mode.upper()
     if eng_u == "CYCLES":
@@ -112,13 +118,19 @@ def configure_render_engine(engine_mode: str, width: int, height: int, samples: 
         cyc.samples = int(samples)
         if hasattr(cyc, "use_adaptive_sampling"):
             cyc.use_adaptive_sampling = True
-            cyc.adaptive_threshold = 0.035
+            cyc.adaptive_threshold = 0.045
         if hasattr(cyc, "use_denoising"):
             cyc.use_denoising = True
         if hasattr(cyc, "denoiser"):
             try:
-                # Selalu pakai OpenImageDenoise (built-in di Blender 4.2, super tajam & bebas error libnvoptix di Colab!)
+                # Selalu pakai OpenImageDenoise (built-in di Blender 4.2, bebas error libnvoptix di Colab!)
                 cyc.denoiser = "OPENIMAGEDENOISE"
+            except Exception:
+                pass
+        if hasattr(cyc, "denoising_use_gpu"):
+            try:
+                # Jalankan OpenImageDenoise di GPU NVIDIA L4/A100 (jauh lebih cepat daripada CPU!)
+                cyc.denoising_use_gpu = True
             except Exception:
                 pass
         if hasattr(cyc, "denoising_input_passes"):
@@ -416,6 +428,16 @@ def _rebind_cast_manager_from_loaded_blend(width: int) -> ExactCharacterCastMana
         cast_mgr.actors[nm] = (obj, tex, ab)
     if missing:
         cast_mgr.build_actor_planes()
+    # Matikan modifier WAVE (jika file .blend lama) agar Persistent Data BVH tidak pernah rebuild tiap frame!
+    for obj in bpy.data.objects:
+        mods = getattr(obj, "modifiers", None)
+        if mods is not None:
+            for m in list(mods):
+                if getattr(m, "type", "") == "WAVE":
+                    if hasattr(m, "show_render"):
+                        m.show_render = False
+                    if hasattr(m, "show_viewport"):
+                        m.show_viewport = False
     return cast_mgr
 
 
@@ -435,13 +457,62 @@ def render_previews(cast_mgr: ExactCharacterCastManager) -> None:
     print(f"[EEVEE Preview] Semua 12 screenshot preview selesai dalam {time.perf_counter() - t0:.1f}s -> {PREVIEW_DIR}")
 
 
-def render_video_sequence(cast_mgr: ExactCharacterCastManager, start_frame: int, end_frame: int, resume: bool, out_mp4: str) -> None:
+def mux_video_from_frames(out_mp4: str, start_frame: int = 1, end_frame: int = TOTAL_FRAMES, with_audio: bool = True) -> bool:
+    """Gabungkan urutan PNG `frame_XXXX.png` menjadi MP4 (+ audio narasi ElevenLabs bila full 1..1740)."""
+    frames_dir = os.path.join(OUTPUT_DIR, "frames")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("[FFmpeg] Tidak ditemukan di PATH; frame PNG siap di:", frames_dir)
+        return False
+
+    total_expected = end_frame - start_frame + 1
+    missing = [
+        fr for fr in range(start_frame, end_frame + 1)
+        if not (os.path.exists(os.path.join(frames_dir, f"frame_{fr:04d}.png")) and os.path.getsize(os.path.join(frames_dir, f"frame_{fr:04d}.png")) > 4096)
+    ]
+    if missing:
+        print(f"[Mux] Menunggu {len(missing)} frame tersisa (mis. frame {missing[0]}..{missing[-1]}) sebelum muxing final.")
+        return False
+
+    audio_in = None
+    if with_audio:
+        audio_in = AUDIO_MASTER_WAV if os.path.exists(AUDIO_MASTER_WAV) else (AUDIO_MASTER_MP3 if os.path.exists(AUDIO_MASTER_MP3) else None)
+
+    cmd = [
+        ffmpeg, "-y", "-v", "warning",
+        "-framerate", str(FPS),
+        "-start_number", str(start_frame),
+        "-i", os.path.join(frames_dir, "frame_%04d.png"),
+        "-frames:v", str(total_expected),
+    ]
+    if audio_in:
+        cmd += ["-i", audio_in]
+    crf = "16" if with_audio else "14"
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", crf, "-preset", "medium"]
+    if audio_in:
+        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+    cmd.append(out_mp4)
+    print(f"[FFmpeg] Menggabungkan {total_expected} frame ({start_frame}..{end_frame}) -> {out_mp4}", flush=True)
+    subprocess.run(cmd, check=True)
+    print(f"[DONE] Video selesai: {out_mp4}", flush=True)
+    return True
+
+
+def render_video_sequence(
+    cast_mgr: ExactCharacterCastManager,
+    start_frame: int,
+    end_frame: int,
+    resume: bool,
+    out_mp4: str,
+    chunk_mp4: str = "",
+) -> None:
     frames_dir = os.path.join(OUTPUT_DIR, "frames")
     os.makedirs(frames_dir, exist_ok=True)
     scene = bpy.context.scene
 
     t0 = time.perf_counter()
     total_to_do = end_frame - start_frame + 1
+    rendered_now = 0
     for idx, fr in enumerate(range(start_frame, end_frame + 1), start=1):
         fp = os.path.join(frames_dir, f"frame_{fr:04d}.png")
         if resume and os.path.exists(fp) and os.path.getsize(fp) > 4096:
@@ -450,40 +521,33 @@ def render_video_sequence(cast_mgr: ExactCharacterCastManager, start_frame: int,
         cast_mgr.update_for_frame(fr, quantize_deg=6.0)
         scene.render.filepath = fp
         bpy.ops.render.render(write_still=True)
-        if idx == 1 or idx % 15 == 0 or fr == end_frame:
+        rendered_now += 1
+        if rendered_now == 1 or rendered_now % 10 == 0 or fr == end_frame:
             el = time.perf_counter() - t0
-            print(f"[EEVEE Render] Frame {fr:04d}/{end_frame:04d} ({idx*100.0/total_to_do:5.1f}%) | elapsed {el:.1f}s", flush=True)
+            spf = el / float(max(1, rendered_now))
+            rem_fr = end_frame - fr
+            eta_m = (rem_fr * spf) / 60.0
+            print(
+                f"[GPU Render] Frame {fr:04d}/{end_frame:04d} ({idx*100.0/total_to_do:5.1f}%) | "
+                f"{spf:.2f}s/frame | ETA chunk ~{eta_m:.1f} mnt",
+                flush=True,
+            )
 
-    if start_frame == 1 and end_frame >= TOTAL_FRAMES:
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            print("[FFmpeg] Tidak ditemukan di PATH; frame PNG siap di:", frames_dir)
-            return
-        audio_in = AUDIO_MASTER_WAV if os.path.exists(AUDIO_MASTER_WAV) else (AUDIO_MASTER_MP3 if os.path.exists(AUDIO_MASTER_MP3) else None)
-        cmd = [
-            ffmpeg, "-y", "-v", "warning",
-            "-framerate", str(FPS),
-            "-i", os.path.join(frames_dir, "frame_%04d.png"),
-        ]
-        if audio_in:
-            cmd += ["-i", audio_in]
-        cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16", "-preset", "medium"]
-        if audio_in:
-            cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
-        cmd.append(out_mp4)
-        print(f"[FFmpeg] Menggabungkan 1.740 frame + audio narasi -> {out_mp4}")
-        subprocess.run(cmd, check=True)
-        print(f"[DONE] Video final EEVEE Next selesai: {out_mp4}")
+    if chunk_mp4:
+        mux_video_from_frames(chunk_mp4, start_frame=start_frame, end_frame=end_frame, with_audio=False)
+    else:
+        # Otomatis mux MP4 + audio ElevenLabs begitu seluruh 1.740 frame lengkap (aman untuk multi-tab paralel!)
+        mux_video_from_frames(out_mp4, start_frame=1, end_frame=TOTAL_FRAMES, with_audio=True)
 
 
 def _parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     p = argparse.ArgumentParser(description='Blender Cycles OptiX / EEVEE Next v2 — "Jangan Sampai Kunci Ini Jatuh!"')
-    p.add_argument("--mode", choices=("save-blend", "previews", "video"), default="previews")
+    p.add_argument("--mode", choices=("save-blend", "previews", "video", "mux"), default="previews")
     p.add_argument("--engine", choices=("CYCLES", "EEVEE"), default="CYCLES")
     p.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     p.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
-    p.add_argument("--samples", type=int, default=32)
+    p.add_argument("--samples", type=int, default=24)
     p.add_argument("--download-pbr", "--download-assets", dest="download_assets", action="store_true")
     p.add_argument("--pbr-res", default="2k", choices=("1k", "2k"))
     p.add_argument("--blend-in", default="")
@@ -491,12 +555,19 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--end-frame", type=int, default=TOTAL_FRAMES)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--out-mp4", default=os.path.join(OUTPUT_DIR, "jangan_sampai_kunci_ini_jatuh_blender.mp4"))
+    p.add_argument("--chunk-mp4", default="")
     return p.parse_args(argv)
 
 
 def main() -> None:
-    ensure_sprite_dependencies()
     args = _parse_args()
+    if args.mode == "mux":
+        ok = mux_video_from_frames(args.out_mp4, start_frame=1, end_frame=TOTAL_FRAMES, with_audio=True)
+        if not ok:
+            sys.exit(1)
+        return
+
+    ensure_sprite_dependencies()
     if args.blend_in and os.path.exists(args.blend_in):
         bpy.ops.wm.open_mainfile(filepath=args.blend_in)
         configure_render_engine(args.engine, args.width, args.height, samples=args.samples)
@@ -511,7 +582,7 @@ def main() -> None:
     if args.mode == "previews":
         render_previews(cast_mgr)
     elif args.mode == "video":
-        render_video_sequence(cast_mgr, args.start_frame, args.end_frame, args.resume, args.out_mp4)
+        render_video_sequence(cast_mgr, args.start_frame, args.end_frame, args.resume, args.out_mp4, chunk_mp4=args.chunk_mp4)
 
 
 if __name__ == "__main__":

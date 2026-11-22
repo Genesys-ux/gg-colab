@@ -259,7 +259,11 @@ class ExactCharacterCastManager:
             if hasattr(bpy_img, "colorspace_settings"):
                 bpy_img.colorspace_settings.name = "sRGB"
             self._bpy_img_cache[cache_key] = bpy_img
-        tex_node.image = bpy_img
+        if getattr(tex_node, "image", None) is not bpy_img:
+            tex_node.image = bpy_img
+            nt = getattr(tex_node, "id_data", None)
+            if nt is not None and hasattr(nt, "update_tag"):
+                nt.update_tag()
         return pil_img.width / float(max(1, pil_img.height))
 
     def _place_actor(
@@ -730,3 +734,8 @@ class ExactCharacterCastManager:
         else:
             for pi in range(4):
                 self._hide_actor(f"Actor_Penumpang_{pi}")
+
+        # Pastikan Cycles Persistent Data langsung menangkap semua perubahan sprite & transform aktor!
+        vl = getattr(bpy.context, "view_layer", None)
+        if vl is not None and hasattr(vl, "update"):
+            vl.update()
