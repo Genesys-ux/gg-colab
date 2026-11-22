@@ -12,8 +12,10 @@ Pembaruan Penting v2 (sesuai feedback evaluasi visual):
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import shutil
+import site
 import subprocess
 import sys
 import time
@@ -25,6 +27,30 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_THIS_DIR)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
+
+
+def ensure_sprite_dependencies() -> None:
+    """Auto-install pillow & resvg-py ke Python bawaan Blender bila belum terpasang (self-healing di Colab!)."""
+    missing = []
+    for mod_name, pkg_name in (("PIL", "pillow"), ("resvg_py", "resvg-py")):
+        try:
+            __import__(mod_name)
+        except ImportError:
+            missing.append(pkg_name)
+    if not missing:
+        return
+    py_exe = sys.executable
+    print(f"[Auto-Install] Memasang {missing} ke Python Blender ({py_exe})...", flush=True)
+    res = subprocess.run([py_exe, "-m", "pip", "install", "-q", *missing], check=False)
+    if res.returncode != 0:
+        subprocess.run([py_exe, "-m", "ensurepip", "--default-pip"], check=False)
+        subprocess.run([py_exe, "-m", "pip", "install", "-q", *missing], check=True)
+    # Pastikan direktori site-packages & import cache ter-refresh di proses Blender saat ini
+    for sp in site.getsitepackages():
+        if sp not in sys.path and os.path.isdir(sp):
+            sys.path.append(sp)
+    importlib.invalidate_caches()
+    print("[Auto-Install] pillow & resvg-py siap digunakan!", flush=True)
 
 from blender_pipeline.animation_director import animate_dynamic_world
 from blender_pipeline.assets_loader import (
@@ -401,6 +427,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    ensure_sprite_dependencies()
     args = _parse_args()
     if args.blend_in and os.path.exists(args.blend_in):
         bpy.ops.wm.open_mainfile(filepath=args.blend_in)
