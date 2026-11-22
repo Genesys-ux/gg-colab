@@ -569,6 +569,8 @@ def main() -> None:
 
     ensure_sprite_dependencies()
     if args.blend_in and os.path.exists(args.blend_in):
+        if args.download_assets:
+            download_polyhaven_pbr_pack(resolution=args.pbr_res)
         bpy.ops.wm.open_mainfile(filepath=args.blend_in)
         configure_render_engine(args.engine, args.width, args.height, samples=args.samples)
         cast_mgr = _rebind_cast_manager_from_loaded_blend(args.width)

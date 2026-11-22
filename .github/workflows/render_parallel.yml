@@ -1,0 +1,127 @@
+name: Render 3D Paralel (10 Mesin Blender)
+
+on:
+  workflow_dispatch:
+    inputs:
+      width:
+        description: "Lebar resolusi video (720 atau 1080)"
+        required: true
+        default: "720"
+      height:
+        description: "Tinggi resolusi video (1280 atau 1920)"
+        required: true
+        default: "1280"
+      samples:
+        description: "Cycles samples + OpenImageDenoise (16-24 disarankan untuk CPU)"
+        required: true
+        default: "20"
+      download_assets:
+        description: "Unduh 15 model 3D Poly Haven CC0 + PBR 1K"
+        type: boolean
+        default: true
+
+jobs:
+  render-chunk:
+    name: Worker ${{ matrix.chunk + 1 }}/10
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system deps & FFmpeg
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y libxi6 libunwind8 libgl1-mesa-dri libegl1-mesa libxkbcommon0 libsm6 libxrender1 ffmpeg
+
+      - name: Install Blender 4.2 LTS + resvg-py & pillow
+        run: |
+          BLENDER_VER="4.2.3"
+          wget -q "https://download.blender.org/release/Blender4.2/blender-${BLENDER_VER}-linux-x64.tar.xz" -O /tmp/blender.tar.xz
+          mkdir -p /tmp/blender_42
+          tar -xf /tmp/blender.tar.xz -C /tmp/blender_42 --strip-components=1
+          rm -f /tmp/blender.tar.xz
+          BPY=$(ls /tmp/blender_42/4.*/python/bin/python3* | head -n 1)
+          "$BPY" -m pip install -q --upgrade resvg-py pillow numpy
+
+      - name: Render chunk ${{ matrix.chunk + 1 }}/10 (174 frame)
+        env:
+          CHUNK: ${{ matrix.chunk }}
+          W: ${{ inputs.width }}
+          H: ${{ inputs.height }}
+          S: ${{ inputs.samples }}
+          DL: ${{ inputs.download_assets }}
+        run: |
+          START_F=$(( CHUNK * 174 + 1 ))
+          END_F=$(( (CHUNK + 1) * 174 ))
+          CHUNK_ID=$(printf "%02d" "$CHUNK")
+          mkdir -p chunks
+          ASSETS_FLAG=""
+          if [ "$DL" = "true" ]; then
+            ASSETS_FLAG="--download-assets --pbr-res 1k"
+          fi
+          echo "Rendering frames ${START_F}..${END_F} -> chunks/chunk_${CHUNK_ID}.mp4"
+          /tmp/blender_42/blender -b -P blender_pipeline/render_eevee.py -- \
+            --mode video --engine CYCLES \
+            --width "$W" --height "$H" --samples "$S" \
+            --start-frame "$START_F" --end-frame "$END_F" \
+            $ASSETS_FLAG \
+            --chunk-mp4 "chunks/chunk_${CHUNK_ID}.mp4"
+
+      - name: Upload chunk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-chunk-${{ matrix.chunk }}
+          path: chunks/chunk_*.mp4
+          retention-days: 3
+
+  merge-final:
+    name: Gabung 10 Chunk + Audio ElevenLabs
+    needs: render-chunk
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (for ElevenLabs master audio)
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg
+
+      - name: Download all 10 chunks
+        uses: actions/download-artifact@v4
+        with:
+          path: chunks
+          pattern: render-chunk-*
+          merge-multiple: true
+
+      - name: Concatenate 10 chunks & mux ElevenLabs narration
+        run: |
+          ls -lh chunks/
+          for i in $(seq -w 0 9); do
+            echo "file '$(pwd)/chunks/chunk_${i}.mp4'" >> concat_list.txt
+          done
+          AUDIO_ARG=""
+          AUDIO_MAP=""
+          if [ -f "audio/output/narration_master_58s.wav" ]; then
+            AUDIO_ARG="-i audio/output/narration_master_58s.wav"
+            AUDIO_MAP="-c:a aac -b:a 192k -shortest"
+          elif [ -f "audio/output/narration_master_58s.mp3" ]; then
+            AUDIO_ARG="-i audio/output/narration_master_58s.mp3"
+            AUDIO_MAP="-c:a aac -b:a 192k -shortest"
+          fi
+          ffmpeg -y -f concat -safe 0 -i concat_list.txt $AUDIO_ARG \
+            -c:v copy $AUDIO_MAP \
+            jangan_sampai_kunci_ini_jatuh_58s_final.mp4
+          ls -lh jangan_sampai_kunci_ini_jatuh_58s_final.mp4
+
+      - name: Upload Final 58s Video
+        uses: actions/upload-artifact@v4
+        with:
+          name: jangan_sampai_kunci_ini_jatuh_58s_final
+          path: jangan_sampai_kunci_ini_jatuh_58s_final.mp4
+          retention-days: 14
