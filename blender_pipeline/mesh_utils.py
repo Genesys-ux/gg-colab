@@ -1016,56 +1016,29 @@ def make_sunlight_beam_3d(
     radius_end: float,
     collection,
     mat_beam,
-    num_shafts: int = 4,
 ) -> "bpy.types.Object":
     """
-    Bilah Sinar Matahari Gaya KARTUN (Multi-Shaft Graphic Cartoon Sunbeams ala Ghibli / Klaus)!
-    Membangun berkas beberapa bilah pita cahaya sejajar/menyebar dengan lebar bervariasi & celah bening
-    antar bilah (bukan 1 kerucut kabut buram!). Setiap bilah berupa pita silang `+` ber-UVMap presisi
-    sehingga tepinya selalu lurus grafis & tajam dari segala sudut 28 kamera!
+    Sinar matahari sinematik 3D lembut (Volumetric God Ray Shaft) dari `origin` (arah matahari / bukaan jendela)
+    menuju `target` dengan kerucut terbuka halus tanpa tutup agar ujungnya memudar sempurna!
     """
     p0 = Vector(origin)
     p1 = Vector(target)
     vec = p1 - p0
     length = max(0.5, float(vec.length))
     mid = (p0 + p1) * 0.5
-    half_l = length * 0.5
 
     bm = bmesh.new()
-    uv_layer = bm.loops.layers.uv.new("UVMap")
-
-    # Susunan 4 bilah sinar kartun asimetris (lebar + sedang + tipis + aksen) dengan celah bening di antaranya!
-    shaft_patterns = [
-        (-0.74, -0.18, 0.20),
-        (-0.18,  0.14, 0.34),
-        ( 0.34, -0.12, 0.16),
-        ( 0.72,  0.22, 0.24),
-    ][: max(1, num_shafts)]
-
-    for ox_f, oy_f, w_ratio in shaft_patterns:
-        sx0, sy0 = ox_f * radius_start, oy_f * radius_start
-        sx1, sy1 = ox_f * radius_end, oy_f * radius_end
-        hw0 = max(0.03, radius_start * w_ratio * 0.5)
-        hw1 = max(0.05, radius_end * w_ratio * 0.5)
-
-        # Crossed `+` graphic ribbons (bidang X & bidang Y) agar selalu terbaca tajam 360°!
-        for plane_axis in (0, 1):
-            if plane_axis == 0:
-                dx0, dy0, dx1, dy1 = hw0, 0.0, hw1, 0.0
-            else:
-                dx0, dy0, dx1, dy1 = 0.0, hw0, 0.0, hw1
-
-            v_bl = bm.verts.new((sx1 - dx1, sy1 - dy1, -half_l))
-            v_br = bm.verts.new((sx1 + dx1, sy1 + dy1, -half_l))
-            v_tr = bm.verts.new((sx0 + dx0, sy0 + dy0, +half_l))
-            v_tl = bm.verts.new((sx0 - dx0, sy0 - dy0, +half_l))
-            face = bm.faces.new((v_bl, v_br, v_tr, v_tl))
-            uvs = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
-            for loop, uv in zip(face.loops, uvs):
-                loop[uv_layer].uv = uv
-
-    obj = create_mesh_object(name, bm, collection, (mid.x, mid.y, mid.z), mat=mat_beam, smooth=False)
-    # Arahkan sumbu +Z lokal ke sumber cahaya (origin) agar UV.y=1 di sumber terang & UV.y=0 di ujung bawah!
+    bmesh.ops.create_cone(
+        bm,
+        cap_ends=False,
+        cap_tris=False,
+        segments=24,
+        radius1=radius_end,   # Z = -length/2 (ujung target, memudar ke 0!)
+        radius2=radius_start, # Z = +length/2 (sumber sinar terang dari matahari!)
+        depth=length,
+    )
+    obj = create_mesh_object(name, bm, collection, (mid.x, mid.y, mid.z), mat=mat_beam, smooth=True)
+    # Arahkan sumbu +Z lokal kerucut dari target ke origin (agar Generated.Z=1 berada di sumber cahaya!)
     z_axis = (p0 - p1).normalized()
     up_ref = Vector((0, 0, 1)) if abs(z_axis.z) < 0.96 else Vector((1, 0, 0))
     x_axis = up_ref.cross(z_axis).normalized()
