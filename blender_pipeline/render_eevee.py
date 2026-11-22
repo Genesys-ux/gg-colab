@@ -115,6 +115,22 @@ def configure_render_engine(engine_mode: str, width: int, height: int, samples: 
             cyc.adaptive_threshold = 0.035
         if hasattr(cyc, "use_denoising"):
             cyc.use_denoising = True
+        if hasattr(cyc, "denoiser"):
+            try:
+                # Selalu pakai OpenImageDenoise (built-in di Blender 4.2, super tajam & bebas error libnvoptix di Colab!)
+                cyc.denoiser = "OPENIMAGEDENOISE"
+            except Exception:
+                pass
+        if hasattr(cyc, "denoising_input_passes"):
+            try:
+                cyc.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+            except Exception:
+                pass
+        if hasattr(cyc, "denoising_prefilter"):
+            try:
+                cyc.denoising_prefilter = "FAST"
+            except Exception:
+                pass
         if hasattr(cyc, "max_bounces"):
             cyc.max_bounces = 4
             cyc.diffuse_bounces = 2
@@ -138,12 +154,7 @@ def configure_render_engine(engine_mode: str, width: int, height: int, samples: 
                         for d in prefs.devices:
                             d.use = (d.type == dev_type)
                         cyc.device = "GPU"
-                        if dev_type == "OPTIX" and hasattr(cyc, "denoiser"):
-                            try:
-                                cyc.denoiser = "OPTIX"
-                            except Exception:
-                                pass
-                        print(f"[GPU] Cycles {dev_type} AKTIF: {[d.name for d in gpu_devs]} ({samples} samples + AI Denoiser)!", flush=True)
+                        print(f"[GPU] Cycles {dev_type} AKTIF: {[d.name for d in gpu_devs]} ({samples} samples + OpenImageDenoise)!", flush=True)
                         gpu_activated = True
                         break
                 except Exception:
