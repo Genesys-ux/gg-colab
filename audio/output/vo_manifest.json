@@ -1,0 +1,84 @@
+{
+  "title": "Jangan Sampai Kunci Ini Jatuh!",
+  "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+  "model_id": "eleven_v4",
+  "language_code": "id",
+  "total_duration_sec": 58.0,
+  "total_characters_billed": 965,
+  "segments": [
+    {
+      "id": "vo_01_hook",
+      "location": "Lokasi 1: Bengkel Jam Loteng (CAM 01-05)",
+      "file": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\vo_01_hook.mp3",
+      "start_sec": 0.0,
+      "end_sec": 4.2,
+      "slot_duration_sec": 4.2,
+      "actual_duration_sec": 5.04,
+      "characters_billed": 107,
+      "request_id": "36MOtcEbwhFmKpGC1KlW",
+      "text": "[urgent] Kalau kunci emas ini menyentuh lantai... seluruh kota bakal berhenti bernapas dalam sepuluh detik!"
+    },
+    {
+      "id": "vo_02_pasar",
+      "location": "Lokasi 2: Pasar Rempah & Buah Bertingkat (CAM 06-10)",
+      "file": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\vo_02_pasar.mp3",
+      "start_sec": 9.0,
+      "end_sec": 17.8,
+      "slot_duration_sec": 8.8,
+      "actual_duration_sec": 9.76,
+      "characters_billed": 162,
+      "request_id": "07T8usB3g7UN8maA2DSi",
+      "text": "[excited] Bima melompat dari atap—tapi kunci itu jauh lebih cepat! Memantul di tenda pasar, meledakkan bubuk kunyit, dan bikin satu blok pedagang ikut terjungkal!"
+    },
+    {
+      "id": "vo_03_gang_kucing",
+      "location": "Lokasi 3: Gang Kafe & Jemuran Sempit (CAM 11-15)",
+      "file": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\vo_03_gang_kucing.mp3",
+      "start_sec": 18.0,
+      "end_sec": 25.8,
+      "slot_duration_sec": 7.8,
+      "actual_duration_sec": 9.92,
+      "characters_billed": 169,
+      "request_id": "MAa6NL6EZAJMtK6Bft9h",
+      "text": "[tense] Satu sentimeter lagi tertangkap! Tapi si kucing kampung ini malah menepisnya lurus ke jeruji besi tua... [curious] tunggu—kenapa suaranya bukan dentingan biasa?!"
+    },
+    {
+      "id": "vo_04_twist_gorong",
+      "location": "Lokasi 4: Gorong-Gorong Mesin Jam Kuno — STORY TURN (CAM 16-19)",
+      "file": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\vo_04_twist_gorong.mp3",
+      "start_sec": 26.2,
+      "end_sec": 37.8,
+      "slot_duration_sec": 11.6,
+      "actual_duration_sec": 11.76,
+      "characters_billed": 178,
+      "request_id": "yUxd4egSBLOAAXWMmwWb",
+      "text": "[gasps] Gawat! Kunci ini nggak jatuh ke selokan biasa—ia mendarat tepat di Jantung Mesin Kota! Dan sekarang... bukan waktu yang berhenti. Tapi seluruh kota mulai berputar MUNDUR!"
+    },
+    {
+      "id": "vo_05_stasiun_trem",
+      "location": "Lokasi 5: Stasiun Trem Layang Terbuka (CAM 20-24)",
+      "file": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\vo_05_stasiun_trem.mp3",
+      "start_sec": 38.2,
+      "end_sec": 48.8,
+      "slot_duration_sec": 10.6,
+      "actual_duration_sec": 10.24,
+      "characters_billed": 176,
+      "request_id": "ikA1cGBp31vWKC1Fcdig",
+      "text": "[excited] Kereta trem melesat mundur! Burung-burung terbang ke belakang! Bima cuma punya satu cara: melompat dari atap trem dan mencabut kembali kunci yang terlempar ke langit!"
+    },
+    {
+      "id": "vo_06_ending_loop",
+      "location": "Lokasi 6: Wajah Menara Jam Utama di Dermaga (CAM 25-28)",
+      "file": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\vo_06_ending_loop.mp3",
+      "start_sec": 49.2,
+      "end_sec": 57.8,
+      "slot_duration_sec": 8.6,
+      "actual_duration_sec": 9.52,
+      "characters_billed": 173,
+      "request_id": "hNAZUcK81MH10X141vA5",
+      "text": "[relieved] Waktu kembali normal tepat di detik terakhir... [surprised] tapi tunggu—kalau kuncinya ada di tangan Bima sekarang... lalu apa yang baru saja jatuh dari sakunya?!"
+    }
+  ],
+  "master_wav": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\narration_master_58s.wav",
+  "master_mp3": "C:\\Users\\lutfi\\Downloads\\py nem\\audio\\output\\narration_master_58s.mp3"
+}
