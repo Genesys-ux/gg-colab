@@ -472,23 +472,33 @@ def create_cel_pbr_material(
     phase_grp.node_tree = get_or_create_phase_control_group()
     phase_grp.location = (520, -240)
 
-    # Warna bayangan = Albedo * Phase_Shade_Color (kaya, tidak abu-abu kusam!)
-    shade_mul = _new_mix_rgba(nodes, "MULTIPLY", True, loc=(820, -60))
-    shade_mul.inputs[0].default_value = 0.88
+    # Warna bayangan cerah & berkarakter (tidak hitam kusam!): campuran Albedo * Phase_Shade_Color + sedikit warna dasar
+    shade_mul = _new_mix_rgba(nodes, "MULTIPLY", True, loc=(760, -60))
+    shade_mul.inputs[0].default_value = 0.72
     links.new(albedo_sock, shade_mul.inputs[6])
     links.new(phase_grp.outputs["Shade_Color"], shade_mul.inputs[7])
 
-    # Warna terang = Albedo * Tint cahaya asli EEVEE (lembut agar warna Low Sun / Crimson / Furnace masuk!)
+    shade_lift = _new_mix_rgba(nodes, "ADD", True, loc=(920, -60))
+    shade_lift.inputs[0].default_value = 0.20
+    links.new(shade_mul.outputs[2], shade_lift.inputs[6])
+    links.new(albedo_sock, shade_lift.inputs[7])
+
+    # Warna terang cerah & jenuh: Albedo utuh + tint hangat/crimson dari cahaya nyata EEVEE (tanpa meredupkan!)
     lit_mul = _new_mix_rgba(nodes, "MULTIPLY", False, loc=(820, 360))
-    lit_mul.inputs[0].default_value = 0.45
+    lit_mul.inputs[0].default_value = 0.34
     links.new(albedo_sock, lit_mul.inputs[6])
     links.new(s2rgb.outputs["Color"], lit_mul.inputs[7])
 
+    lit_boost = _new_mix_rgba(nodes, "ADD", False, loc=(960, 360))
+    lit_boost.inputs[0].default_value = 0.22
+    links.new(lit_mul.outputs[2], lit_boost.inputs[6])
+    links.new(albedo_sock, lit_boost.inputs[7])
+
     # Campurkan Shadow <-> Lit berdasarkan 3-Band Cel Ramp!
-    cel_mix = _new_mix_rgba(nodes, "MIX", False, loc=(1080, 180))
+    cel_mix = _new_mix_rgba(nodes, "MIX", False, loc=(1140, 180))
     links.new(ramp.outputs["Color"], cel_mix.inputs[0])
-    links.new(shade_mul.outputs[2], cel_mix.inputs[6])
-    links.new(lit_mul.outputs[2], cel_mix.inputs[7])
+    links.new(shade_lift.outputs[2], cel_mix.inputs[6])
+    links.new(lit_boost.outputs[2], cel_mix.inputs[7])
 
     # 4. Crisp Cel Specular Band (khusus logam / kulit / kaca / batu basah!)
     spec_add = cel_mix.outputs[2]
@@ -682,7 +692,19 @@ def create_material_library() -> Dict[str, "bpy.types.Material"]:
         "moss_wet": create_cel_pbr_material("MAT_Moss_Wet", "#248052", "micro_fur", None, 0.0, 0.55, 2.2, 0.30, 0.95),
         "turmeric_pile": create_cel_pbr_material("MAT_Turmeric_Pile", "#F2B614", "woven_fabric", None, 0.0, 0.92, 4.0, 0.30, 0.85),
         "chili_pile": create_cel_pbr_material("MAT_Chili_Pile", "#D6261E", "woven_fabric", None, 0.0, 0.92, 4.0, 0.30, 0.85),
-        "clock_dial": create_cel_pbr_material("MAT_Clock_Dial", "#F8EED8", "painted", None, 0.0, 0.24, 1.0, 0.08, 0.95),
+        "clock_dial": create_cel_pbr_material("MAT_Clock_Dial", "#FAF2DF", "painted", None, 0.0, 0.24, 1.0, 0.08, 0.95),
+        # --- Referensi Arsitektur Mediterania, Trem Lisbon, Menara Venesia & Botani Bougainvillea ---
+        "terracotta_roof": create_cel_pbr_material("MAT_Terracotta_Roof", "#C65A34", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 1.6, 0.30, 0.90),
+        "limestone_trim": create_cel_pbr_material("MAT_Limestone_Trim", "#ECE4D4", "peeling_plaster", "peeling_plaster", 0.0, 0.74, 1.2, 0.20, 0.85),
+        "lapis_blue": create_cel_pbr_material("MAT_Lapis_Clock_Blue", "#1D448E", "peeling_plaster", None, 0.12, 0.34, 1.5, 0.14, 1.15),
+        "shutter_green": create_cel_pbr_material("MAT_Shutter_Green", "#2E7864", "oak_wood", "oak_wood", 0.0, 0.64, 2.2, 0.24, 0.85),
+        "shutter_blue": create_cel_pbr_material("MAT_Shutter_Blue", "#34729E", "oak_wood", "oak_wood", 0.0, 0.64, 2.2, 0.24, 0.85),
+        "boug_bark": create_cel_pbr_material("MAT_Boug_Bark", "#6A5442", "oak_wood", None, 0.0, 0.88, 3.5, 0.36, 0.65),
+        "boug_leaf": create_cel_pbr_material("MAT_Boug_Leaf", "#2B7A3E", "painted", None, 0.0, 0.38, 3.0, 0.14, 0.95),
+        "boug_bract": create_cel_pbr_material("MAT_Boug_Bract_Magenta", "#E02878", "woven_fabric", None, 0.0, 0.62, 4.0, 0.16, 1.20),
+        "boug_flower_cream": create_cel_pbr_material("MAT_Boug_Flower_Cream", "#FFF4CC", "painted", None, 0.0, 0.45, 2.0, 0.04, 0.85),
+        "soil_dark": create_cel_pbr_material("MAT_Soil_Dark", "#3B2A1E", "wet_cobblestone", None, 0.0, 0.95, 5.0, 0.40, 0.30),
+        "tram_varnished_wood": create_cel_pbr_material("MAT_Tram_Varnished_Wood", "#7E441E", "oak_wood", "oak_wood", 0.0, 0.24, 2.0, 0.18, 0.95),
         # --- Glass & Emissives ---
         "glass_dusty": create_dusty_glass_material("MAT_Glass_Dusty", "#D0EEF6", 0.34),
         "glass_lamp_green": create_dusty_glass_material("MAT_Glass_Lamp_Green", "#1B8A4E", 0.84),

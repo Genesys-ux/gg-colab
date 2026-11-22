@@ -10,7 +10,9 @@ __pycache__/
 *.blend1
 *.blend2
 output/frames/
+output/blender_sprites_exact/
 output/*.mp4
 output/*.blend
 assets/textures/
+assets/polyhaven_models/
 previews/blender_eevee/

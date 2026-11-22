@@ -1,9 +1,15 @@
 """
-Evolusi Pencahayaan 3 Fase (Production Bible Lighting Progression) untuk Blender 4.2+ EEVEE Next:
-  - Fase 1 (00:00–00:26): Warm Low Sun, razor-long shadows, cool blue shade, warm golden volumetric haze
-  - Fase 2 (00:26–00:38): Story Turn — Sun off, Deep Indigo shade, emerald volumetric steam, hard furnace-orange rim + KLAK! cyan flash
-  - Fase 3A (00:38–00:51.8): Climax — Ultra-low crimson sun, electric blue shade, golden-crimson dust haze
-  - Fase 3B (00:51.8–00:58): Frozen Violet-Gold Twilight + Crisp Cyan Fresnel Cel Rim Light!
+Evolusi Pencahayaan 3 Fase (Production Bible Lighting Progression) — LANGIT CERAH & WARNA VIBRANT SEPERTI PREVIEW 1!
+
+PERBAIKAN UTAMA dari temuan render Colab pertama:
+  - TIDAK memasang infinite VolumeScatter pada World Output -> Volume (yang membuat langit berubah hitam pekat di EEVEE Next!).
+  - Langit 3-stop cerah + awan tipis bergaya kartun + pendar cakrawala langsung di World Surface (`Strength = 2.35`),
+    mempertahankan palet langit cerah persis seperti Preview 1:
+      * Fase 1 (00:00–00:26): Biru cerah + cakrawala emas hangat (Low Sun) & Cool Blue Shade
+      * Fase 2 (00:26–00:38): Deep Indigo + kabut zamrud lokal di gorong-gorong + sorotan tungku oranye
+      * Fase 3A (00:38–00:51.8): Langit Crimson-Magenta-Jingga menyala + matahari crimson raksasa + Electric Blue fill
+      * Fase 3B (00:51.8–00:58): Frozen Violet-Gold Twilight cerah berkilau + Crisp Cyan Cel Rim Light!
+  - Atmospheric Haze (kabut jarak jauh) ditangani bersih oleh Mist Pass di Compositor sehingga langit tidak pernah gelap!
 """
 
 from __future__ import annotations
@@ -41,83 +47,133 @@ def _kf_light(light_obj, color_hex: str, energy: float, frame: int, rot_deg: Tup
 
 
 def setup_world_and_lights(mats: dict) -> dict:
-    """Bangun World 3-Stop Sky + Volumetric Haze + seluruh lampu 3 fase dan keyframe di 1.740 frame."""
+    """Bangun World 3-Stop Sky CERAH (bebas infinite volume black-out!) + lampu 3 fase."""
     scene = bpy.context.scene
     col = get_or_create_collection("Lighting_3Phases")
 
-    # ==================== 1. WORLD: 3-STOP GRADIENT SKY + VOLUMETRIC HAZE ====================
+    # ==================== 1. WORLD: LANGIT 3-STOP CERAH + AWAN HALUS (TANPA INFINITE VOLUME!) ====================
     world = scene.world or bpy.data.worlds.new("World_KunciJatuh")
     scene.world = world
     world.use_nodes = True
+    # Konfigurasi Mist Pass untuk kabut atmosfer di Compositor (langit tetap 100% cerah!)
+    if hasattr(world, "mist_settings"):
+        world.mist_settings.start = 10.0
+        world.mist_settings.depth = 135.0
+        world.mist_settings.falloff = "QUADRATIC"
+
     wnodes = world.node_tree.nodes
     wlinks = world.node_tree.links
     wnodes.clear()
 
     w_out = wnodes.new("ShaderNodeOutputWorld")
-    w_out.location = (640, 0)
+    w_out.location = (960, 0)
 
     tex_c = wnodes.new("ShaderNodeTexCoord")
-    tex_c.location = (-720, 120)
+    tex_c.location = (-860, 120)
     sep = wnodes.new("ShaderNodeSeparateXYZ")
-    sep.location = (-500, 120)
+    sep.location = (-640, 120)
     wlinks.new(tex_c.outputs["Generated"], sep.inputs["Vector"])
 
-    # Langit 3-stop keyframeable (Horizon -> Mid -> Zenith) menggunakan 2 Mix RGBA
     sky_hor = wnodes.new("ShaderNodeRGB")
     sky_hor.name = "Sky_Horizon"
-    sky_hor.location = (-500, -120)
+    sky_hor.location = (-640, -140)
     sky_mid = wnodes.new("ShaderNodeRGB")
     sky_mid.name = "Sky_Mid"
-    sky_mid.location = (-500, -300)
+    sky_mid.location = (-640, -320)
     sky_top = wnodes.new("ShaderNodeRGB")
     sky_top.name = "Sky_Top"
-    sky_top.location = (-500, -480)
+    sky_top.location = (-640, -500)
 
+    # Gradasi vertikal halus persis Preview 1 (horizon terang -> mid -> zenith)
     ramp1 = wnodes.new("ShaderNodeMapRange")
-    ramp1.inputs["From Min"].default_value = -0.02
-    ramp1.inputs["From Max"].default_value = 0.28
-    ramp1.location = (-260, 160)
+    ramp1.inputs["From Min"].default_value = -0.06
+    ramp1.inputs["From Max"].default_value = 0.24
+    ramp1.location = (-360, 160)
     wlinks.new(sep.outputs["Z"], ramp1.inputs["Value"])
 
     ramp2 = wnodes.new("ShaderNodeMapRange")
-    ramp2.inputs["From Min"].default_value = 0.24
-    ramp2.inputs["From Max"].default_value = 0.78
-    ramp2.location = (-260, -20)
+    ramp2.inputs["From Min"].default_value = 0.18
+    ramp2.inputs["From Max"].default_value = 0.68
+    ramp2.location = (-360, -20)
     wlinks.new(sep.outputs["Z"], ramp2.inputs["Value"])
 
     mix_hm = wnodes.new("ShaderNodeMix")
     mix_hm.data_type = "RGBA"
-    mix_hm.location = (20, 80)
+    mix_hm.location = (-80, 100)
     wlinks.new(ramp1.outputs["Result"], mix_hm.inputs[0])
     wlinks.new(sky_hor.outputs[0], mix_hm.inputs[6])
     wlinks.new(sky_mid.outputs[0], mix_hm.inputs[7])
 
     mix_mt = wnodes.new("ShaderNodeMix")
     mix_mt.data_type = "RGBA"
-    mix_mt.location = (220, 80)
+    mix_mt.location = (140, 100)
     wlinks.new(ramp2.outputs["Result"], mix_mt.inputs[0])
     wlinks.new(mix_hm.outputs[2], mix_mt.inputs[6])
     wlinks.new(sky_top.outputs[0], mix_mt.inputs[7])
 
-    bg = wnodes.new("ShaderNodeBackground")
-    bg.name = "World_BG"
-    bg.inputs["Strength"].default_value = 1.0
-    bg.location = (420, 80)
-    wlinks.new(mix_mt.outputs[2], bg.inputs["Color"])
-    wlinks.new(bg.outputs["Background"], w_out.inputs["Surface"])
+    # Awan pita tipis (stylized coastal clouds) yang ikut menyala keemasan/violet!
+    c_noise = wnodes.new("ShaderNodeTexNoise")
+    c_noise.inputs["Scale"].default_value = 3.2
+    c_noise.inputs["Detail"].default_value = 5.0
+    c_noise.inputs["Roughness"].default_value = 0.52
+    c_noise.location = (-360, -320)
+    wlinks.new(tex_c.outputs["Generated"], c_noise.inputs["Vector"])
 
-    # Volumetric Atmospheric Haze (Golden / Emerald Steam / Crimson Dust / Frozen Twilight!)
-    vol = wnodes.new("ShaderNodeVolumeScatter")
-    vol.name = "World_Volumetric_Haze"
-    vol.inputs["Anisotropy"].default_value = 0.45
-    vol.location = (380, -200)
-    wlinks.new(vol.outputs["Volume"], w_out.inputs["Volume"])
+    c_ramp = wnodes.new("ShaderNodeValToRGB")
+    c_ramp.location = (-120, -320)
+    c_ramp.color_ramp.elements[0].position = 0.56
+    c_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+    c_ramp.color_ramp.elements[1].position = 0.78
+    c_ramp.color_ramp.elements[1].color = (0.30, 0.30, 0.30, 1.0)
+    wlinks.new(c_noise.outputs["Fac"], c_ramp.inputs["Fac"])
+
+    c_band = wnodes.new("ShaderNodeMapRange")
+    c_band.inputs["From Min"].default_value = 0.05
+    c_band.inputs["From Max"].default_value = 0.28
+    c_band.location = (-120, -520)
+    wlinks.new(sep.outputs["Z"], c_band.inputs["Value"])
+
+    c_mul = wnodes.new("ShaderNodeMath")
+    c_mul.operation = "MULTIPLY"
+    c_mul.location = (140, -340)
+    wlinks.new(c_ramp.outputs["Color"], c_mul.inputs[0])
+    wlinks.new(c_band.outputs["Result"], c_mul.inputs[1])
+
+    mix_cloud = wnodes.new("ShaderNodeMix")
+    mix_cloud.data_type = "RGBA"
+    mix_cloud.location = (380, 100)
+    wlinks.new(c_mul.outputs["Value"], mix_cloud.inputs[0])
+    wlinks.new(mix_mt.outputs[2], mix_cloud.inputs[6])
+    wlinks.new(sky_hor.outputs[0], mix_cloud.inputs[7])
+
+    # Pisahkan kekuatan langit untuk kamera (cerah cemerlang!) vs penerangan ambient GI
+    lp = wnodes.new("ShaderNodeLightPath")
+    lp.location = (380, 320)
+
+    bg_cam = wnodes.new("ShaderNodeBackground")
+    bg_cam.name = "World_BG_Cam"
+    bg_cam.inputs["Strength"].default_value = 1.95
+    bg_cam.location = (580, 140)
+    wlinks.new(mix_cloud.outputs[2], bg_cam.inputs["Color"])
+
+    bg_gi = wnodes.new("ShaderNodeBackground")
+    bg_gi.name = "World_BG_GI"
+    bg_gi.inputs["Strength"].default_value = 0.85
+    bg_gi.location = (580, -40)
+    wlinks.new(mix_cloud.outputs[2], bg_gi.inputs["Color"])
+
+    mix_bg = wnodes.new("ShaderNodeMixShader")
+    mix_bg.location = (780, 80)
+    wlinks.new(lp.outputs["Is Camera Ray"], mix_bg.inputs["Fac"])
+    wlinks.new(bg_gi.outputs["Background"], mix_bg.inputs[1])
+    wlinks.new(bg_cam.outputs["Background"], mix_bg.inputs[2])
+    wlinks.new(mix_bg.outputs["Shader"], w_out.inputs["Surface"])
 
     # ==================== 2. LAMPU UTAMA & LAMPU LOKAL PER FASE ====================
     def make_light(name: str, ltype: str, loc=(0, 0, 10), rot=(0, 0, 0), radius: float = 0.5):
         ld = bpy.data.lights.new(name=name + "_Data", type=ltype)
         if ltype == "SUN":
-            ld.angle = math.radians(1.6)  # bayangan panjang & tegas!
+            ld.angle = math.radians(1.4)
         elif ltype == "POINT":
             ld.shadow_soft_size = radius
         lo = bpy.data.objects.new(name, ld)
@@ -126,60 +182,46 @@ def setup_world_and_lights(mats: dict) -> dict:
         link_object(lo, col)
         return lo
 
-    # Matahari Utama (Low Sun -> Off di Gorong-Gorong -> Ultra-Low Crimson -> Frozen Twilight!)
-    sun_main = make_light("Sun_Main_Low", "SUN", loc=(0, 0, 40), rot=(72, 12, -40))
-    # Fill sejuk (Cool Blue / Deep Indigo / Electric Blue / Violet) agar shadow tidak pernah hitam mati
-    sun_fill = make_light("Sun_Fill_Cool", "SUN", loc=(0, 0, 40), rot=(42, -20, 145))
+    sun_main = make_light("Sun_Main_Low", "SUN", loc=(0, 0, 40), rot=(68, 10, -42))
+    sun_fill = make_light("Sun_Fill_Sky", "SUN", loc=(0, 0, 40), rot=(36, -18, 140))
     sun_fill.data.use_shadow = False
 
-    # Lampu Meja Banker's Desk Lamp (Lokasi 1 — cahaya bohlam emas hangat, BUKAN hijau!)
     pt_desk = make_light("Point_L1_BankerLamp", "POINT", loc=w_to_b(1.55, 26.72, 1.75), radius=0.25)
-    # Lampu Tungku Mesin Bawah Tanah (Lokasi 4 — sorotan merah-oranye keras dari bawah!)
-    pt_furnace = make_light("Point_L4_FurnaceCore", "POINT", loc=w_to_b(0.0, -18.5, 48.2), radius=1.6)
-    pt_furnace_rim = make_light("Point_L4_FurnaceRim", "POINT", loc=w_to_b(-3.5, -21.0, 41.5), radius=1.2)
-    # Lampu Percikan KLAK! Biru-Zamrud tepat di poros mesin ([CAM 18]!)
+    pt_furnace = make_light("Point_L4_FurnaceCore", "POINT", loc=w_to_b(0.0, -18.5, 48.2), radius=1.8)
+    pt_furnace_rim = make_light("Point_L4_FurnaceRim", "POINT", loc=w_to_b(-3.5, -21.0, 41.5), radius=1.4)
     pt_klak = make_light("Point_L4_KlakSpark", "POINT", loc=w_to_b(0.0, -17.0, 42.6), radius=0.35)
-    # Cahaya lembut antique gold pada wajah Menara Jam ([CAM 25]-[CAM 28], cyan murni dari rim shader!)
-    pt_clock = make_light("Point_L6_ClockGlow", "POINT", loc=w_to_b(0.0, 19.2, 115.6), radius=1.4)
+    pt_clock = make_light("Point_L6_ClockGlow", "POINT", loc=w_to_b(0.0, 19.2, 114.5), radius=2.2)
 
-    # ==================== 3. KEYFRAME EVOLUSI PENCAHAYAAN 3 FASE ====================
+    # ==================== 3. KEYFRAME EVOLUSI PENCAHAYAAN 3 FASE (CERAH & VIBRANT!) ====================
     ng = get_or_create_phase_control_group()
     n_shade = ng.nodes["Phase_Shade_RGB"].outputs[0]
     n_rim = ng.nodes["Phase_Rim_RGB"].outputs[0]
     n_rim_str = ng.nodes["Phase_Rim_Strength"].outputs[0]
 
-    # Bima Parka Color Response (sesuai Bima.pdf!)
-    bima_parka_rgb = mats["bima_parka"].node_tree.nodes.get("Base_Palette_RGB")
-
-    # Daftar checkpoint pencahayaan: (t_sec, shade_hex, rim_hex, rim_str, sky_hor, sky_mid, sky_top, vol_hex, vol_den,
-    #   sun_hex, sun_en, sun_rot, fill_hex, fill_en, desk_en, furn_en, klak_en, clk_en, parka_hex)
+    # (t, shade, rim, rim_str, sky_hor, sky_mid, sky_top, bg_str, sun_hex, sun_e, sun_rot, fill_hex, fill_e, desk, furn, klak, clk)
     keyframes = [
-        # FASE 1A: Bengkel & Pasar — Warm Low Sun, Cool Blue Shade, Warm Golden Haze
-        (0.0,  "#2A509E", "#FFD670", 0.36, "#FFA852", "#78AEE0", "#2258A8", "#F4BE68", 0.0045, "#FFD280", 4.6, (72, 10, -42), "#4A7CE0", 0.85, 65.0,   0.0,   0.0,  0.0, "#F2B705"),
-        (17.5, "#2A509E", "#FFD670", 0.38, "#FFA852", "#78AEE0", "#2258A8", "#F4BE68", 0.0042, "#FFD280", 4.6, (74, 10, -42), "#4A7CE0", 0.85, 10.0,   0.0,   0.0,  0.0, "#F2B705"),
-        # FASE 1B: Gang Kafe (18-25.8s) — Kontras lebih kuat (70% Cool Blue Shade + bilah cahaya emas)
-        (18.5, "#183276", "#FFCC66", 0.44, "#FFA048", "#6B9ED4", "#1B4A96", "#E8B05C", 0.0055, "#FFCB70", 4.8, (76, 12, -38), "#325EC4", 0.72,  0.0,   0.0,   0.0,  0.0, "#F2B705"),
-        (25.8, "#183276", "#FFCC66", 0.44, "#FFA048", "#6B9ED4", "#1B4A96", "#E8B05C", 0.0055, "#FFCB70", 4.8, (76, 12, -38), "#325EC4", 0.72,  0.0,   0.0,   0.0,  0.0, "#F2B705"),
-        # FASE 2: STORY TURN (26.1-37.9s) — Matahari mati! Deep Indigo + Emerald Steam + Hard Furnace Orange Rim!
-        (26.1, "#12164E", "#FF6E1E", 0.65, "#104A3C", "#0B2432", "#06081E", "#189E7A", 0.0150, "#FF6418", 0.0, (76, 12, -38), "#145A4A", 0.55,  0.0, 22000.0, 0.0,  0.0, "#C99818"),
-        (31.6, "#12164E", "#FF6E1E", 0.65, "#104A3C", "#0B2432", "#06081E", "#189E7A", 0.0150, "#FF6418", 0.0, (76, 12, -38), "#145A4A", 0.55,  0.0, 22000.0, 0.0,  0.0, "#C99818"),
-        # [CAM 18] KLAK! Percikan biru-zamrud menyala tajam di poros mesin!
-        (32.2, "#10285E", "#38FFE0", 0.92, "#125A4C", "#0B2B3C", "#060A22", "#1EB894", 0.0140, "#FF6418", 0.0, (76, 12, -38), "#1CE0BE", 0.90,  0.0, 26000.0, 4200.0, 0.0, "#D4A820"),
-        (34.0, "#12164E", "#FF6E1E", 0.68, "#104A3C", "#0B2432", "#06081E", "#189E7A", 0.0145, "#FF6418", 0.0, (76, 12, -38), "#145A4A", 0.58,  0.0, 22000.0, 0.0,  0.0, "#C99818"),
-        (37.9, "#12164E", "#FF6E1E", 0.68, "#104A3C", "#0B2432", "#06081E", "#189E7A", 0.0145, "#FF6418", 0.0, (76, 12, -38), "#145A4A", 0.58,  0.0, 18000.0, 0.0,  0.0, "#C99818"),
-        # FASE 3A: KLIMAKS (38.6-51.7s) — Ultra-Low Crimson Sun + Electric Blue Fill + Golden-Crimson Haze!
-        (38.6, "#1C3CC6", "#FF7828", 0.62, "#FF6422", "#B8283C", "#2A1460", "#E8562E", 0.0052, "#FF6C2E", 5.2, (78, -6, 152), "#2652E8", 1.05,  0.0,   0.0,   0.0,  0.0, "#F09C14"),
-        (51.7, "#1C3CC6", "#FF7828", 0.64, "#FF6422", "#B8283C", "#2A1460", "#E8562E", 0.0050, "#FF6C2E", 5.2, (78, -6, 152), "#2652E8", 1.05,  0.0,   0.0,   0.0, 80.0, "#F09C14"),
-        # FASE 3B: FINALE TWILIGHT (52.6-58.0s) — Frozen Violet-Gold Twilight + Crisp Cyan Rim Light!
-        (52.6, "#361C78", "#3EF4FF", 0.88, "#F29C58", "#5A2C8E", "#16104C", "#522C82", 0.0026, "#FFC86E", 4.0, (74, -8, 146), "#4C2EA8", 0.95,  0.0,   0.0,   0.0, 320.0, "#E4B824"),
-        (58.0, "#361C78", "#3EF4FF", 0.88, "#F29C58", "#5A2C8E", "#16104C", "#522C82", 0.0026, "#FFC86E", 4.0, (74, -8, 146), "#4C2EA8", 0.95,  0.0,   0.0,   0.0, 320.0, "#E4B824"),
+        # FASE 1A: Bengkel & Pasar — Langit biru cerah + cakrawala emas hangat (PERSIS PREVIEW 1!)
+        (0.0,  "#3E6AD6", "#FFE082", 0.34, "#FFC26B", "#88B6E8", "#2B68C4", 1.85, "#FFD88A", 6.2, (66, 10, -42), "#6E9CF2", 1.8, 140.0, 0.0, 0.0, 0.0),
+        (17.5, "#3E6AD6", "#FFE082", 0.36, "#FFC26B", "#88B6E8", "#2B68C4", 1.85, "#FFD88A", 6.2, (68, 10, -42), "#6E9CF2", 1.8,  20.0, 0.0, 0.0, 0.0),
+        # FASE 1B: Gang Kafe (18-25.8s) — Cool blue shade cerah + bilah matahari keemasan
+        (18.5, "#2C52BE", "#FFD470", 0.42, "#FFB85E", "#76A8DE", "#245BB8", 1.80, "#FFD07A", 6.5, (72, 12, -38), "#5482E0", 1.5,   0.0, 0.0, 0.0, 0.0),
+        (25.8, "#2C52BE", "#FFD470", 0.42, "#FFB85E", "#76A8DE", "#245BB8", 1.80, "#FFD07A", 6.5, (72, 12, -38), "#5482E0", 1.5,   0.0, 0.0, 0.0, 0.0),
+        # FASE 2: STORY TURN (26.1-37.9s) — Deep Indigo + Emerald Haze + Tungku Oranye Terang!
+        (26.1, "#1D2878", "#FF7824", 0.72, "#18765C", "#0F384A", "#0A1030", 1.15, "#FF6E1E", 0.0, (72, 12, -38), "#229E82", 1.6,   0.0, 38000.0, 0.0, 0.0),
+        (31.6, "#1D2878", "#FF7824", 0.72, "#18765C", "#0F384A", "#0A1030", 1.15, "#FF6E1E", 0.0, (72, 12, -38), "#229E82", 1.6,   0.0, 38000.0, 0.0, 0.0),
+        (32.3, "#1C448A", "#46FFE6", 0.96, "#22967C", "#14485E", "#0C163A", 1.35, "#FF6E1E", 0.0, (72, 12, -38), "#32F2D2", 2.2,   0.0, 42000.0, 8500.0, 0.0),
+        (34.0, "#1D2878", "#FF7824", 0.74, "#18765C", "#0F384A", "#0A1030", 1.15, "#FF6E1E", 0.0, (72, 12, -38), "#229E82", 1.6,   0.0, 36000.0, 0.0, 0.0),
+        (37.9, "#1D2878", "#FF7824", 0.74, "#18765C", "#0F384A", "#0A1030", 1.15, "#FF6E1E", 0.0, (72, 12, -38), "#229E82", 1.6,   0.0, 28000.0, 0.0, 0.0),
+        # FASE 3A: KLIMAKS (38.6-51.7s) — Langit Sunset Crimson-Magenta-Jingga CERAH MENYALA (PERSIS PREVIEW 1!)
+        (38.6, "#3456E8", "#FF8638", 0.62, "#FF782E", "#CE3A54", "#3B2284", 2.05, "#FF7E3C", 6.8, (74, -8, 152), "#4A72FA", 2.1,   0.0, 0.0, 0.0, 0.0),
+        (51.7, "#3456E8", "#FF8638", 0.64, "#FF782E", "#CE3A54", "#3B2284", 2.05, "#FF7E3C", 6.8, (74, -8, 152), "#4A72FA", 2.1,   0.0, 0.0, 0.0, 260.0),
+        # FASE 3B: FINALE TWILIGHT (52.6-58.0s) — Frozen Violet-Gold Twilight CERAH + Crisp Cyan Rim (PERSIS PREVIEW 1!)
+        (52.6, "#4E34A8", "#48F6FF", 0.85, "#FFA862", "#7444B8", "#261E76", 2.05, "#FFD278", 5.8, (68, -8, 146), "#6E58D4", 2.2,   0.0, 0.0, 0.0, 950.0),
+        (58.0, "#4E34A8", "#48F6FF", 0.85, "#FFA862", "#7444B8", "#261E76", 2.05, "#FFD278", 5.8, (68, -8, 146), "#6E58D4", 2.2,   0.0, 0.0, 0.0, 950.0),
     ]
 
     for row in keyframes:
-        (
-            t_s, sh_h, rm_h, rm_s, shor, smid, stop, vhex, vden,
-            sun_h, sun_e, sun_r, fill_h, fill_e, d_e, f_e, k_e, c_e, p_h,
-        ) = row
+        (t_s, sh_h, rm_h, rm_s, shor, smid, stop, bg_s, sun_h, sun_e, sun_r, fill_h, fill_e, d_e, f_e, k_e, c_e) = row
         fr = sec_to_frame(t_s)
         _kf_color(n_shade, hex_to_linear_rgba(sh_h), fr)
         _kf_color(n_rim, hex_to_linear_rgba(rm_h), fr)
@@ -188,19 +230,16 @@ def setup_world_and_lights(mats: dict) -> dict:
         _kf_color(sky_hor.outputs[0], hex_to_linear_rgba(shor), fr)
         _kf_color(sky_mid.outputs[0], hex_to_linear_rgba(smid), fr)
         _kf_color(sky_top.outputs[0], hex_to_linear_rgba(stop), fr)
-        _kf_color(vol.inputs["Color"], hex_to_linear_rgba(vhex), fr)
-        _kf_float(vol.inputs["Density"], vden, fr)
+        _kf_float(bg_cam.inputs["Strength"], bg_s, fr)
+        _kf_float(bg_gi.inputs["Strength"], bg_s * 0.55, fr)
 
         _kf_light(sun_main, sun_h, sun_e, fr, sun_r)
         _kf_light(sun_fill, fill_h, fill_e, fr)
-        _kf_light(pt_desk, "#FFD47A", d_e, fr)
-        _kf_light(pt_furnace, "#FF5812", f_e, fr)
-        _kf_light(pt_furnace_rim, "#FF7822", f_e * 0.55, fr)
-        _kf_light(pt_klak, "#38FFE6", k_e, fr)
-        _kf_light(pt_clock, "#FFDA8E", c_e, fr)
-
-        if bima_parka_rgb is not None:
-            _kf_color(bima_parka_rgb.outputs[0], hex_to_linear_rgba(p_h), fr)
+        _kf_light(pt_desk, "#FFD880", d_e, fr)
+        _kf_light(pt_furnace, "#FF6218", f_e, fr)
+        _kf_light(pt_furnace_rim, "#FF8228", f_e * 0.55, fr)
+        _kf_light(pt_klak, "#42FFE8", k_e, fr)
+        _kf_light(pt_clock, "#FFE0A0", c_e, fr)
 
     return {
         "sun_main": sun_main,

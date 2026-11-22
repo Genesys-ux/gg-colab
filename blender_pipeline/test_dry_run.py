@@ -111,6 +111,9 @@ def _install_mock_blender() -> None:
         def copy(self):
             return _Vec((self.x, self.y, self.z))
 
+        def lerp(self, o, t):
+            return _Vec((self.x + (o.x - self.x) * t, self.y + (o.y - self.y) * t, self.z + (o.z - self.z) * t))
+
     class _Quat:
         def __init__(self, w=1.0, x=0.0, y=0.0, z=0.0):
             self.w, self.x, self.y, self.z = w, x, y, z
@@ -167,6 +170,13 @@ def _install_mock_blender() -> None:
         def __init__(self, co=(0, 0, 0)):
             self.co = _Vec(co)
 
+    class _BMLoop:
+        def __init__(self):
+            self._uv = types.SimpleNamespace(uv=(0.0, 0.0))
+
+        def __getitem__(self, layer):
+            return self._uv
+
     class _BMSeq(list):
         def __init__(self, is_face: bool = False):
             super().__init__()
@@ -174,7 +184,8 @@ def _install_mock_blender() -> None:
 
         def new(self, *args, **kwargs):
             if self._is_face:
-                f = types.SimpleNamespace(verts=args[0] if args else ())
+                vs = args[0] if args else ()
+                f = types.SimpleNamespace(verts=vs, loops=[_BMLoop() for _ in vs])
                 self.append(f)
                 return f
             v = _BMVert(args[0] if args and isinstance(args[0], (tuple, list)) else (0, 0, 0))
@@ -185,6 +196,9 @@ def _install_mock_blender() -> None:
         def __init__(self):
             self.verts = _BMSeq(is_face=False)
             self.faces = _BMSeq(is_face=True)
+            self.loops = types.SimpleNamespace(
+                layers=types.SimpleNamespace(uv=types.SimpleNamespace(new=lambda name="UVMap": name))
+            )
 
         def normal_update(self):
             pass
@@ -511,6 +525,7 @@ def _install_mock_blender() -> None:
             self.name = name
             self.use_nodes = True
             self.node_tree = _NodeTree(name)
+            self.mist_settings = types.SimpleNamespace(start=10.0, depth=130.0, falloff="QUADRATIC")
 
     root_col = _Col("Scene Collection")
     scene = types.SimpleNamespace(
@@ -519,6 +534,7 @@ def _install_mock_blender() -> None:
         camera=None,
         use_nodes=True,
         node_tree=_NodeTree("Compositor"),
+        view_layers=[types.SimpleNamespace(use_pass_mist=True)],
         frame_start=1,
         frame_end=1740,
         frame_set=lambda f: None,
@@ -584,26 +600,26 @@ def _install_mock_blender() -> None:
 def test_full_mock_bpy_build() -> None:
     _install_mock_blender()
     import bpy  # type: ignore
+    from blender_pipeline.config import HERO_PREVIEW_SHOTS, sec_to_frame
     from blender_pipeline.render_eevee import build_complete_project
 
-    blend_path = build_complete_project(width=720, height=1280, samples=32, download_pbr=False)
+    blend_path, cast_mgr = build_complete_project(width=720, height=1280, samples=64, download_assets=False)
     n_objs = len(bpy.data.objects._items)
     n_mats = len(bpy.data.materials._items)
-    n_arms = len(bpy.data.armatures._items)
-    assert n_objs > 250, f"Terlalu sedikit objek 3D ({n_objs})"
-    assert n_mats > 55, f"Terlalu sedikit material Cel-PBR ({n_mats})"
-    assert n_arms >= 8, f"Harus ada >= 8 Armature terbuka (Bima, Oren, 2 Pedagang, 4 Penumpang), dapat {n_arms}"
+    assert n_objs > 500, f"Terlalu sedikit objek 3D referensi nyata ({n_objs})"
+    assert n_mats > 75, f"Terlalu sedikit material Cel-PBR ({n_mats})"
+    assert len(cast_mgr.actors) == 11, f"Harus ada 11 aktor exact Preview 1, dapat {len(cast_mgr.actors)}"
 
-    # Pastikan SELURUH pose bone di semua Armature 100% UNLOCKED!
-    for arm_obj in bpy.data.objects:
-        if arm_obj.type == "ARMATURE":
-            for pb in arm_obj.pose.bones:
-                assert pb.lock_location == (False, False, False), f"Bone {pb.name} terkunci!"
-                assert pb.lock_rotation == (False, False, False), f"Bone {pb.name} terkunci!"
+    # Uji render sprite RGBA asli Preview 1 untuk seluruh 12 keyframe preview!
+    for fname, t_sec, _, _ in HERO_PREVIEW_SHOTS:
+        fr = sec_to_frame(t_sec)
+        cast_mgr.update_for_frame(fr, quantize_deg=4.0)
 
+    assert len(cast_mgr._disk_cache) >= 15, f"Sprite karakter asli terlalu sedikit ({len(cast_mgr._disk_cache)})"
     print(
-        f"[OK] Full Mock-bpy Dry-Run SUKSES 100%! "
-        f"({n_objs} objek 3D, {n_mats} material Cel-PBR, {n_arms} Armature 100% unlocked -> {os.path.basename(blend_path)})"
+        f"[OK] Full Mock-bpy v2 Dry-Run SUKSES 100%! "
+        f"({n_objs} objek 3D arsitektur/botani referensi nyata, {n_mats} material Cel-PBR, "
+        f"{len(cast_mgr.actors)} aktor exact Preview-1, {len(cast_mgr._disk_cache)} sprite RGBA terverifikasi -> {os.path.basename(blend_path)})"
     )
 
 
