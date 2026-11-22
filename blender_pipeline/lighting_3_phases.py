@@ -189,6 +189,7 @@ def setup_world_and_lights(mats: dict) -> dict:
     pt_desk = make_light("Point_L1_BankerLamp", "POINT", loc=w_to_b(1.55, 26.72, 1.75), radius=0.25)
     pt_furnace = make_light("Point_L4_FurnaceCore", "POINT", loc=w_to_b(0.0, -18.5, 48.2), radius=1.8)
     pt_furnace_rim = make_light("Point_L4_FurnaceRim", "POINT", loc=w_to_b(-3.5, -21.0, 41.5), radius=1.4)
+    pt_emerald_fill = make_light("Point_L4_EmeraldFill", "POINT", loc=w_to_b(0.0, -13.5, 37.5), radius=2.4)
     pt_klak = make_light("Point_L4_KlakSpark", "POINT", loc=w_to_b(0.0, -17.0, 42.6), radius=0.35)
     pt_clock = make_light("Point_L6_ClockGlow", "POINT", loc=w_to_b(0.0, 19.2, 114.5), radius=2.2)
 
@@ -238,6 +239,7 @@ def setup_world_and_lights(mats: dict) -> dict:
         _kf_light(pt_desk, "#FFD880", d_e, fr)
         _kf_light(pt_furnace, "#FF6218", f_e, fr)
         _kf_light(pt_furnace_rim, "#FF8228", f_e * 0.55, fr)
+        _kf_light(pt_emerald_fill, "#26E6B2", f_e * 0.22, fr)
         _kf_light(pt_klak, "#42FFE8", k_e, fr)
         _kf_light(pt_clock, "#FFE0A0", c_e, fr)
 

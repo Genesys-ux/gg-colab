@@ -128,15 +128,23 @@ def get_or_create_ink_outline_material(color_hex: str = "#161120") -> "bpy.types
     nodes.clear()
 
     geom = nodes.new("ShaderNodeNewGeometry")
-    geom.location = (-460, 140)
+    geom.location = (-660, 140)
     lp = nodes.new("ShaderNodeLightPath")
-    lp.location = (-460, -80)
+    lp.location = (-660, -80)
 
-    # Tampilkan ink HANYA pada permukaan backfacing yang menghadap kamera (bukan shadow/front ray!)
+    # Solidify dengan thickness negatif & use_flip_normals=True membuat sisi DEPAN menjadi Backfacing=1
+    # dan sisi BELAKANG (pinggiran siluet) menjadi Backfacing=0!
+    # Maka ink HARUS tampil saat (1.0 - Backfacing) * IsCameraRay (HANYA tepi siluet luar!).
+    inv_bf = nodes.new("ShaderNodeMath")
+    inv_bf.operation = "SUBTRACT"
+    inv_bf.inputs[0].default_value = 1.0
+    inv_bf.location = (-420, 140)
+    links.new(geom.outputs["Backfacing"], inv_bf.inputs[1])
+
     gate = nodes.new("ShaderNodeMath")
     gate.operation = "MULTIPLY"
-    gate.location = (-220, 80)
-    links.new(geom.outputs["Backfacing"], gate.inputs[0])
+    gate.location = (-200, 80)
+    links.new(inv_bf.outputs["Value"], gate.inputs[0])
     links.new(lp.outputs["Is Camera Ray"], gate.inputs[1])
 
     transp = nodes.new("ShaderNodeBsdfTransparent")
@@ -652,47 +660,90 @@ def create_dusty_glass_material(name: str, tint_hex: str = "#CBEBF4", alpha: flo
     return mat
 
 
-def create_soft_cloud_material(name: str, color_hex: str, density_alpha: float = 0.72, glow: float = 0.35) -> "bpy.types.Material":
-    """Material partikel 3D lembut (awan bubuk kunyit, cabai, uap zamrud, debu emas)."""
+def create_soft_cloud_material(name: str, color_hex: str, density_alpha: float = 0.55, glow: float = 0.45) -> "bpy.types.Material":
+    """
+    Material awan partikel 3D lembut & bertekstur kabut (3D Noise * Facing^2.4 * IsCameraRay)
+    sehingga uap zamrud & awan bubuk kunyit terlihat seperti kepulan asap/debu lembut (BUKAN bola padat!).
+    """
     existing = bpy.data.materials.get(name)
     if existing is not None:
         return existing
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
     if hasattr(mat, "surface_render_method"):
-        mat.surface_render_method = "DITHERED"
+        mat.surface_render_method = "BLENDED"
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     nodes.clear()
 
     lw = nodes.new("ShaderNodeLayerWeight")
-    lw.inputs["Blend"].default_value = 0.45
-    lw.location = (-440, -120)
+    lw.inputs["Blend"].default_value = 0.35
+    lw.location = (-820, 40)
 
     inv = nodes.new("ShaderNodeMath")
     inv.operation = "SUBTRACT"
     inv.inputs[0].default_value = 1.0
-    inv.location = (-240, -120)
+    inv.use_clamp = True
+    inv.location = (-620, 40)
     links.new(lw.outputs["Facing"], inv.inputs[1])
 
-    mul = nodes.new("ShaderNodeMath")
-    mul.operation = "MULTIPLY"
-    mul.inputs[1].default_value = density_alpha
-    mul.location = (-40, -120)
-    links.new(inv.outputs["Value"], mul.inputs[0])
+    # Jatuhan tepi lembut (^2.4) agar tidak ada tepi bola tajam!
+    pw = nodes.new("ShaderNodeMath")
+    pw.operation = "POWER"
+    pw.inputs[1].default_value = 2.4
+    pw.use_clamp = True
+    pw.location = (-440, 40)
+    links.new(inv.outputs["Value"], pw.inputs[0])
 
-    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.location = (180, 40)
-    rgba = hex_to_linear_rgba(color_hex)
-    _set_input(bsdf, "Base Color", rgba)
-    _set_input(bsdf, "Roughness", 0.92)
-    _set_input(bsdf, "Emission Color", rgba)
-    _set_input(bsdf, "Emission Strength", glow)
-    links.new(mul.outputs["Value"], bsdf.inputs["Alpha"])
+    # Noise 3D untuk tekstur gumpalan uap / bubuk organik
+    tc = nodes.new("ShaderNodeTexCoord")
+    tc.location = (-820, -220)
+    ns = nodes.new("ShaderNodeTexNoise")
+    ns.inputs["Scale"].default_value = 3.8
+    ns.inputs["Detail"].default_value = 6.0
+    ns.inputs["Roughness"].default_value = 0.65
+    ns.location = (-620, -220)
+    links.new(tc.outputs["Object"], ns.inputs["Vector"])
+
+    mul_n = nodes.new("ShaderNodeMath")
+    mul_n.operation = "MULTIPLY"
+    mul_n.use_clamp = True
+    mul_n.location = (-240, -40)
+    links.new(pw.outputs["Value"], mul_n.inputs[0])
+    links.new(ns.outputs["Fac"], mul_n.inputs[1])
+
+    mul_d = nodes.new("ShaderNodeMath")
+    mul_d.operation = "MULTIPLY"
+    mul_d.inputs[1].default_value = density_alpha * 0.65
+    mul_d.use_clamp = True
+    mul_d.location = (-60, -40)
+    links.new(mul_n.outputs["Value"], mul_d.inputs[0])
+
+    lp = nodes.new("ShaderNodeLightPath")
+    lp.location = (-240, -260)
+    cam_only = nodes.new("ShaderNodeMath")
+    cam_only.operation = "MULTIPLY"
+    cam_only.use_clamp = True
+    cam_only.location = (120, -100)
+    links.new(mul_d.outputs["Value"], cam_only.inputs[0])
+    links.new(lp.outputs["Is Camera Ray"], cam_only.inputs[1])
+
+    transp = nodes.new("ShaderNodeBsdfTransparent")
+    transp.location = (120, 180)
+    em = nodes.new("ShaderNodeEmission")
+    em.location = (120, 40)
+    em.inputs["Color"].default_value = hex_to_linear_rgba(color_hex)
+    em.inputs["Strength"].default_value = 1.0 + glow
+
+    mix_sh = nodes.new("ShaderNodeMixShader")
+    mix_sh.location = (360, 80)
+    links.new(cam_only.outputs["Value"], mix_sh.inputs["Fac"])
+    links.new(transp.outputs["BSDF"], mix_sh.inputs[1])
+    links.new(em.outputs["Emission"], mix_sh.inputs[2])
 
     out_n = nodes.new("ShaderNodeOutputMaterial")
-    out_n.location = (480, 40)
-    links.new(bsdf.outputs["BSDF"], out_n.inputs["Surface"])
+    out_n.location = (580, 80)
+    links.new(mix_sh.outputs["Shader"], out_n.inputs["Surface"])
     return mat
 
 
