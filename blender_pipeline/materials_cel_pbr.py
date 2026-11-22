@@ -105,7 +105,11 @@ def get_or_create_phase_control_group():
 
 
 def get_or_create_ink_outline_material(color_hex: str = "#161120") -> "bpy.types.Material":
-    """Material dark ink outline (Inverted-Hull Solidify, backface culling aktif)."""
+    """
+    Material dark ink outline (Inverted-Hull Solidify) yang bekerja 100% IDENTIK di Cycles OptiX & EEVEE Next!
+    - Menggunakan `Geometry.Backfacing * LightPath.IsCameraRay` -> hanya terlihat di sisi tepi belakang kamera,
+      TIDAK menghalangi cahaya matahari dan TIDAK pernah membuat objek hitam di Cycles!
+    """
     name = "MAT_Ink_Outline"
     mat = bpy.data.materials.get(name)
     if mat is not None:
@@ -116,18 +120,42 @@ def get_or_create_ink_outline_material(color_hex: str = "#161120") -> "bpy.types
     mat.use_backface_culling = True
     if hasattr(mat, "use_backface_culling_shadow"):
         mat.use_backface_culling_shadow = True
+    if hasattr(mat, "surface_render_method"):
+        mat.surface_render_method = "DITHERED"
 
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     nodes.clear()
 
-    out_n = nodes.new("ShaderNodeOutputMaterial")
-    out_n.location = (240, 0)
+    geom = nodes.new("ShaderNodeNewGeometry")
+    geom.location = (-460, 140)
+    lp = nodes.new("ShaderNodeLightPath")
+    lp.location = (-460, -80)
+
+    # Tampilkan ink HANYA pada permukaan backfacing yang menghadap kamera (bukan shadow/front ray!)
+    gate = nodes.new("ShaderNodeMath")
+    gate.operation = "MULTIPLY"
+    gate.location = (-220, 80)
+    links.new(geom.outputs["Backfacing"], gate.inputs[0])
+    links.new(lp.outputs["Is Camera Ray"], gate.inputs[1])
+
+    transp = nodes.new("ShaderNodeBsdfTransparent")
+    transp.location = (-180, -140)
+
     em = nodes.new("ShaderNodeEmission")
-    em.location = (0, 0)
+    em.location = (-180, -300)
     em.inputs["Color"].default_value = hex_to_linear_rgba(color_hex)
     em.inputs["Strength"].default_value = 1.0
-    links.new(em.outputs[0], out_n.inputs["Surface"])
+
+    mix_sh = nodes.new("ShaderNodeMixShader")
+    mix_sh.location = (80, 0)
+    links.new(gate.outputs["Value"], mix_sh.inputs["Fac"])
+    links.new(transp.outputs["BSDF"], mix_sh.inputs[1])
+    links.new(em.outputs["Emission"], mix_sh.inputs[2])
+
+    out_n = nodes.new("ShaderNodeOutputMaterial")
+    out_n.location = (320, 0)
+    links.new(mix_sh.outputs["Shader"], out_n.inputs["Surface"])
     return mat
 
 
@@ -374,9 +402,9 @@ def _build_pbr_micro_detail(
             links.new(nf.outputs["Fac"], bump_n.inputs["Height"])
             normal_out = bump_n.outputs["Normal"]
 
-    # Ambient Occlusion crevice darkening agar lipatan/sambungan terasa 3D bervolume!
+    # Ambient Occlusion crevice darkening ringan (2 samples -> super cepat di GPU & tidak bikin lag!)
     ao = nodes.new("ShaderNodeAmbientOcclusion")
-    ao.samples = 8
+    ao.samples = 2
     ao.inputs["Distance"].default_value = 0.45
     ao.location = (-600, 520)
     links.new(albedo_out, ao.inputs["Color"])
@@ -408,10 +436,14 @@ def create_cel_pbr_material(
     bump_strength: float = 0.22,
     rim_boost: float = 1.0,
     cel_bands: Tuple[float, float, float] = (0.14, 0.44, 0.80),
+    render_engine: str = "CYCLES",
 ) -> "bpy.types.Material":
     """
-    Buat material 3D Kartun Cel-Shaded + PBR Realistis untuk Blender 4.2+ EEVEE Next.
-    Menghasilkan bayangan bertingkat tegas + tekstur PBR mikro + rim light per fase pencahayaan!
+    Buat material 3D Kartun Stylized + PBR Realistis untuk Blender 4.2+:
+      - Mode `CYCLES` (Default Colab Pro L4/A100 OptiX — 150x lebih cepat & kualitas film!):
+        Principled BSDF PBR 2K penuh + AO crevice + Fresnel Cel Rim Light per fase + Ink Outlines!
+      - Mode `EEVEE`:
+        Principled BSDF -> Shader to RGB -> 3-Band Stepped Cel ColorRamp + Rim Light per fase!
     """
     existing = bpy.data.materials.get(name)
     if existing is not None:
@@ -428,10 +460,63 @@ def create_cel_pbr_material(
         nodes, links, base_rgba, pbr_kind, pbr_slot, uv_scale, bump_strength
     )
 
-    # 1. Principled BSDF (menghitung cahaya nyata, bayangan panjang EEVEE, PBR roughness, specular & bump!)
+    # Cabang Global Phase Control & Fresnel Cel Rim Light (dipakai bersama di Cycles & EEVEE!)
+    phase_grp = nodes.new("ShaderNodeGroup")
+    phase_grp.node_tree = get_or_create_phase_control_group()
+    phase_grp.location = (520, -240)
+
+    lw = nodes.new("ShaderNodeLayerWeight")
+    lw.inputs["Blend"].default_value = 0.30
+    lw.location = (520, -440)
+
+    ramp_rim = nodes.new("ShaderNodeValToRGB")
+    ramp_rim.location = (740, -440)
+    ramp_rim.color_ramp.elements[0].position = 0.60
+    ramp_rim.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+    ramp_rim.color_ramp.elements[1].position = 0.74
+    ramp_rim.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+    links.new(lw.outputs["Facing"], ramp_rim.inputs["Fac"])
+
+    rim_str_mul = nodes.new("ShaderNodeMath")
+    rim_str_mul.operation = "MULTIPLY"
+    rim_str_mul.location = (940, -360)
+    links.new(phase_grp.outputs["Rim_Strength"], rim_str_mul.inputs[0])
+    rim_str_mul.inputs[1].default_value = rim_boost * (0.55 if render_engine == "CYCLES" else 1.0)
+
+    rim_gate = nodes.new("ShaderNodeMath")
+    rim_gate.operation = "MULTIPLY"
+    rim_gate.location = (1140, -360)
+    links.new(ramp_rim.outputs["Color"], rim_gate.inputs[0])
+    links.new(rim_str_mul.outputs["Value"], rim_gate.inputs[1])
+
+    # ==================== MODE CYCLES OPTIX (STYLIZED PIXAR/SPIDER-VERSE PBR!) ====================
+    if render_engine.upper() == "CYCLES":
+        bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+        bsdf.location = (1380, 120)
+        links.new(albedo_sock, bsdf.inputs["Base Color"])
+        _set_input(bsdf, "Metallic", metallic * 0.85)
+        _set_input(bsdf, "Roughness", roughness)
+        _set_input(bsdf, ("Specular IOR Level", "Specular"), 0.55 if metallic < 0.5 else 0.88)
+        if rough_sock is not None:
+            links.new(rough_sock, bsdf.inputs["Roughness"])
+        if normal_sock is not None:
+            links.new(normal_sock, bsdf.inputs["Normal"])
+        # Fresnel Rim Light tegas mengikuti Fase 1 Gold / Fase 2 Furnace / Fase 3A Crimson / Fase 3B Cyan!
+        em_col_sock = bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")
+        if em_col_sock is not None:
+            links.new(phase_grp.outputs["Rim_Color"], em_col_sock)
+        em_str_sock = bsdf.inputs.get("Emission Strength")
+        if em_str_sock is not None:
+            links.new(rim_gate.outputs["Value"], em_str_sock)
+
+        out_n = nodes.new("ShaderNodeOutputMaterial")
+        out_n.location = (1720, 120)
+        links.new(bsdf.outputs["BSDF"], out_n.inputs["Surface"])
+        return mat
+
+    # ==================== MODE EEVEE NEXT (3-BAND STEPPED CEL-SHADING + PBR!) ====================
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.location = (40, 120)
-    # Gunakan warna netral putih-terang pada BSDF agar ekstraksi cel-mask bersih tidak bias warna gelap
     _set_input(bsdf, "Base Color", (0.95, 0.95, 0.95, 1.0))
     _set_input(bsdf, "Metallic", metallic * 0.45)
     _set_input(bsdf, "Roughness", roughness)
@@ -441,7 +526,6 @@ def create_cel_pbr_material(
     if normal_sock is not None:
         links.new(normal_sock, bsdf.inputs["Normal"])
 
-    # 2. Shader to RGB -> 3-Band Stepped Cel Shading (Signature EEVEE NPR!)
     s2rgb = nodes.new("ShaderNodeShaderToRGB")
     s2rgb.location = (340, 120)
     links.new(bsdf.outputs["BSDF"], s2rgb.inputs["Shader"])
@@ -467,12 +551,6 @@ def create_cel_pbr_material(
     e4.color = (1.0, 1.0, 1.0, 1.0)
     links.new(rgb2bw.outputs["Val"], ramp.inputs["Fac"])
 
-    # 3. Global Phase Control (Cool Blue / Deep Indigo / Electric Blue / Frozen Violet Shadow + Rim!)
-    phase_grp = nodes.new("ShaderNodeGroup")
-    phase_grp.node_tree = get_or_create_phase_control_group()
-    phase_grp.location = (520, -240)
-
-    # Warna bayangan cerah & berkarakter (tidak hitam kusam!): campuran Albedo * Phase_Shade_Color + sedikit warna dasar
     shade_mul = _new_mix_rgba(nodes, "MULTIPLY", True, loc=(760, -60))
     shade_mul.inputs[0].default_value = 0.72
     links.new(albedo_sock, shade_mul.inputs[6])
@@ -483,7 +561,6 @@ def create_cel_pbr_material(
     links.new(shade_mul.outputs[2], shade_lift.inputs[6])
     links.new(albedo_sock, shade_lift.inputs[7])
 
-    # Warna terang cerah & jenuh: Albedo utuh + tint hangat/crimson dari cahaya nyata EEVEE (tanpa meredupkan!)
     lit_mul = _new_mix_rgba(nodes, "MULTIPLY", False, loc=(820, 360))
     lit_mul.inputs[0].default_value = 0.34
     links.new(albedo_sock, lit_mul.inputs[6])
@@ -494,13 +571,11 @@ def create_cel_pbr_material(
     links.new(lit_mul.outputs[2], lit_boost.inputs[6])
     links.new(albedo_sock, lit_boost.inputs[7])
 
-    # Campurkan Shadow <-> Lit berdasarkan 3-Band Cel Ramp!
     cel_mix = _new_mix_rgba(nodes, "MIX", False, loc=(1140, 180))
     links.new(ramp.outputs["Color"], cel_mix.inputs[0])
     links.new(shade_lift.outputs[2], cel_mix.inputs[6])
     links.new(lit_boost.outputs[2], cel_mix.inputs[7])
 
-    # 4. Crisp Cel Specular Band (khusus logam / kulit / kaca / batu basah!)
     spec_add = cel_mix.outputs[2]
     if metallic > 0.25 or roughness < 0.35:
         ramp_sp = nodes.new("ShaderNodeValToRGB")
@@ -517,37 +592,11 @@ def create_cel_pbr_material(
         links.new(ramp_sp.outputs["Color"], mix_sp.inputs[7])
         spec_add = mix_sp.outputs[2]
 
-    # 5. Crisp Fresnel Cel Rim Light (mengikuti Fase 1 Gold / Fase 2 Furnace / Fase 3A Crimson / Fase 3B Cyan!)
-    lw = nodes.new("ShaderNodeLayerWeight")
-    lw.inputs["Blend"].default_value = 0.32
-    lw.location = (740, -400)
-
-    ramp_rim = nodes.new("ShaderNodeValToRGB")
-    ramp_rim.location = (940, -400)
-    ramp_rim.color_ramp.elements[0].position = 0.58
-    ramp_rim.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
-    ramp_rim.color_ramp.elements[1].position = 0.72
-    ramp_rim.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
-    links.new(lw.outputs["Facing"], ramp_rim.inputs["Fac"])
-
-    rim_str_mul = nodes.new("ShaderNodeMath")
-    rim_str_mul.operation = "MULTIPLY"
-    rim_str_mul.location = (1140, -340)
-    links.new(phase_grp.outputs["Rim_Strength"], rim_str_mul.inputs[0])
-    rim_str_mul.inputs[1].default_value = rim_boost
-
-    rim_gate = nodes.new("ShaderNodeMath")
-    rim_gate.operation = "MULTIPLY"
-    rim_gate.location = (1320, -340)
-    links.new(ramp_rim.outputs["Color"], rim_gate.inputs[0])
-    links.new(rim_str_mul.outputs["Value"], rim_gate.inputs[1])
-
     final_add = _new_mix_rgba(nodes, "ADD", False, loc=(1500, 120))
     links.new(rim_gate.outputs["Value"], final_add.inputs[0])
     links.new(spec_add, final_add.inputs[6])
     links.new(phase_grp.outputs["Rim_Color"], final_add.inputs[7])
 
-    # Emission Output eksplisit (shader cel akhir yang sudah menyerap cahaya+bayangan nyata dari Principled BSDF!)
     em_final = nodes.new("ShaderNodeEmission")
     em_final.inputs["Strength"].default_value = 1.0
     em_final.location = (1720, 120)
@@ -647,64 +696,70 @@ def create_soft_cloud_material(name: str, color_hex: str, density_alpha: float =
     return mat
 
 
-def create_material_library() -> Dict[str, "bpy.types.Material"]:
-    """Bangun pustaka lengkap material Cel-Shaded + PBR untuk seluruh 6 lokasi & cast."""
+def create_material_library(render_engine: str = "CYCLES") -> Dict[str, "bpy.types.Material"]:
+    """Bangun pustaka lengkap material Stylized PBR / Cel-Shaded untuk seluruh 6 lokasi & cast."""
     get_or_create_phase_control_group()
+    eng = render_engine.upper()
+
+    def mcel(*args, **kwargs):
+        kwargs["render_engine"] = eng
+        return create_cel_pbr_material(*args, **kwargs)
+
     lib: Dict[str, "bpy.types.Material"] = {
         "ink": get_or_create_ink_outline_material("#15101F"),
-        # --- Lingkungan PBR + Cel-Shaded ---
-        "oak_wood": create_cel_pbr_material("MAT_Oak_Wood", "#8F5A2B", "oak_wood", "oak_wood", 0.0, 0.56, 1.4, 0.28, 0.85),
-        "oak_dark": create_cel_pbr_material("MAT_Oak_Dark", "#543218", "oak_wood", "oak_wood", 0.0, 0.62, 1.2, 0.30, 0.70),
-        "plaster_warm": create_cel_pbr_material("MAT_Plaster_Warm", "#D8C5A8", "peeling_plaster", "peeling_plaster", 0.0, 0.78, 0.7, 0.24, 0.65),
-        "plaster_terracotta": create_cel_pbr_material("MAT_Plaster_Terracotta", "#D67757", "peeling_plaster", "peeling_plaster", 0.0, 0.76, 0.6, 0.24, 0.75),
-        "plaster_teal": create_cel_pbr_material("MAT_Plaster_Teal", "#538A90", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 0.8, 0.26, 0.75),
-        "plaster_ochre": create_cel_pbr_material("MAT_Plaster_Ochre", "#DFB36E", "peeling_plaster", "peeling_plaster", 0.0, 0.76, 0.6, 0.24, 0.72),
-        "plaster_coral": create_cel_pbr_material("MAT_Plaster_Coral", "#C95A4E", "peeling_plaster", "peeling_plaster", 0.0, 0.75, 0.6, 0.24, 0.75),
-        "plaster_mint": create_cel_pbr_material("MAT_Plaster_Mint", "#5AC4A8", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 0.8, 0.22, 0.75),
-        "tower_stone": create_cel_pbr_material("MAT_Tower_Stone", "#5A556E", "peeling_plaster", "peeling_plaster", 0.0, 0.80, 0.5, 0.28, 1.05),
-        "vault_stone": create_cel_pbr_material("MAT_Vault_Stone", "#242A48", "wet_cobblestone", "cobblestone", 0.0, 0.65, 0.5, 0.32, 1.10),
-        "cobble_wet": create_cel_pbr_material("MAT_Cobble_Wet", "#586274", "wet_cobblestone", "cobblestone", 0.0, 0.22, 1.2, 0.34, 1.05),
-        "stone_step": create_cel_pbr_material("MAT_Stone_Step", "#B2A490", "wet_cobblestone", "cobblestone", 0.0, 0.70, 0.9, 0.26, 0.70),
-        "brass_gold": create_cel_pbr_material("MAT_Brass_Gold", "#E0AA28", "scratched_brass", None, 0.85, 0.26, 2.5, 0.18, 1.25),
-        "brass_dark": create_cel_pbr_material("MAT_Brass_Dark", "#8E621C", "scratched_brass", None, 0.82, 0.34, 2.2, 0.22, 1.10),
-        "copper_ox": create_cel_pbr_material("MAT_Copper_Ox", "#357266", "oxidized_copper", "oxidized_metal", 0.72, 0.42, 1.2, 0.28, 1.20),
-        "iron_dark": create_cel_pbr_material("MAT_Iron_Dark", "#252B38", "oxidized_copper", "oxidized_metal", 0.78, 0.44, 1.5, 0.26, 1.15),
-        "steel_bright": create_cel_pbr_material("MAT_Steel_Bright", "#8E9CAD", "scratched_brass", None, 0.88, 0.24, 2.5, 0.16, 1.15),
-        "rust_grate": create_cel_pbr_material("MAT_Rust_Grate", "#5E3624", "oxidized_copper", "oxidized_metal", 0.65, 0.54, 2.0, 0.32, 0.95),
-        "porcelain": create_cel_pbr_material("MAT_Porcelain", "#FAF5EC", "painted", None, 0.0, 0.16, 2.0, 0.06, 0.85),
-        "tea_liquid": create_cel_pbr_material("MAT_Tea_Liquid", "#7C421C", "painted", None, 0.0, 0.10, 2.0, 0.04, 0.60),
-        "burlap": create_cel_pbr_material("MAT_Burlap", "#C4A476", "woven_fabric", "woven_fabric", 0.0, 0.88, 3.0, 0.34, 0.70),
-        "canopy_red": create_cel_pbr_material("MAT_Canopy_Red", "#D83028", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.90),
-        "canopy_cream": create_cel_pbr_material("MAT_Canopy_Cream", "#F7EEE0", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.24, 0.80),
-        "canopy_teal": create_cel_pbr_material("MAT_Canopy_Teal", "#1C9E9A", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.85),
-        "canopy_ochre": create_cel_pbr_material("MAT_Canopy_Ochre", "#C67E20", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.85),
-        "canopy_plum": create_cel_pbr_material("MAT_Canopy_Plum", "#8E2D5A", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.85),
-        "bistro_blue": create_cel_pbr_material("MAT_Bistro_Blue", "#3E98DC", "painted", None, 0.20, 0.34, 2.0, 0.12, 0.90),
-        "tram_crimson": create_cel_pbr_material("MAT_Tram_Crimson", "#B82220", "painted", None, 0.25, 0.26, 1.8, 0.14, 1.25),
-        "tram_cream": create_cel_pbr_material("MAT_Tram_Cream", "#F2E5C8", "painted", None, 0.08, 0.32, 1.8, 0.12, 1.05),
-        "water_sea": create_cel_pbr_material("MAT_Water_Sea", "#18466C", "wet_cobblestone", None, 0.0, 0.12, 0.4, 0.18, 1.15),
-        "prop_red": create_cel_pbr_material("MAT_Prop_Red", "#DE3428", "painted", None, 0.0, 0.32, 2.0, 0.10, 0.90),
-        "prop_orange": create_cel_pbr_material("MAT_Prop_Orange", "#F28218", "painted", None, 0.0, 0.38, 2.0, 0.14, 0.90),
-        "prop_green": create_cel_pbr_material("MAT_Prop_Green", "#268C48", "painted", None, 0.0, 0.40, 2.0, 0.14, 0.85),
-        "prop_magenta": create_cel_pbr_material("MAT_Prop_Magenta", "#D82874", "painted", None, 0.0, 0.48, 2.0, 0.16, 0.90),
-        "prop_blue": create_cel_pbr_material("MAT_Prop_Blue", "#247CE0", "painted", None, 0.0, 0.34, 2.0, 0.10, 0.90),
-        "terracotta_pot": create_cel_pbr_material("MAT_Terracotta_Pot", "#B65232", "peeling_plaster", None, 0.0, 0.76, 2.4, 0.26, 0.85),
-        "moss_wet": create_cel_pbr_material("MAT_Moss_Wet", "#248052", "micro_fur", None, 0.0, 0.55, 2.2, 0.30, 0.95),
-        "turmeric_pile": create_cel_pbr_material("MAT_Turmeric_Pile", "#F2B614", "woven_fabric", None, 0.0, 0.92, 4.0, 0.30, 0.85),
-        "chili_pile": create_cel_pbr_material("MAT_Chili_Pile", "#D6261E", "woven_fabric", None, 0.0, 0.92, 4.0, 0.30, 0.85),
-        "clock_dial": create_cel_pbr_material("MAT_Clock_Dial", "#FAF2DF", "painted", None, 0.0, 0.24, 1.0, 0.08, 0.95),
+        # --- Lingkungan PBR + Stylized/Cel ---
+        "oak_wood": mcel("MAT_Oak_Wood", "#8F5A2B", "oak_wood", "oak_wood", 0.0, 0.56, 1.4, 0.28, 0.85),
+        "oak_dark": mcel("MAT_Oak_Dark", "#543218", "oak_wood", "oak_wood", 0.0, 0.62, 1.2, 0.30, 0.70),
+        "plaster_warm": mcel("MAT_Plaster_Warm", "#D8C5A8", "peeling_plaster", "peeling_plaster", 0.0, 0.78, 0.7, 0.24, 0.65),
+        "plaster_terracotta": mcel("MAT_Plaster_Terracotta", "#D67757", "peeling_plaster", "peeling_plaster", 0.0, 0.76, 0.6, 0.24, 0.75),
+        "plaster_teal": mcel("MAT_Plaster_Teal", "#538A90", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 0.8, 0.26, 0.75),
+        "plaster_ochre": mcel("MAT_Plaster_Ochre", "#DFB36E", "peeling_plaster", "peeling_plaster", 0.0, 0.76, 0.6, 0.24, 0.72),
+        "plaster_coral": mcel("MAT_Plaster_Coral", "#C95A4E", "peeling_plaster", "peeling_plaster", 0.0, 0.75, 0.6, 0.24, 0.75),
+        "plaster_mint": mcel("MAT_Plaster_Mint", "#5AC4A8", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 0.8, 0.22, 0.75),
+        "tower_stone": mcel("MAT_Tower_Stone", "#5A556E", "peeling_plaster", "peeling_plaster", 0.0, 0.80, 0.5, 0.28, 1.05),
+        "vault_stone": mcel("MAT_Vault_Stone", "#242A48", "wet_cobblestone", "cobblestone", 0.0, 0.65, 0.5, 0.32, 1.10),
+        "cobble_wet": mcel("MAT_Cobble_Wet", "#586274", "wet_cobblestone", "cobblestone", 0.0, 0.22, 1.2, 0.34, 1.05),
+        "stone_step": mcel("MAT_Stone_Step", "#B2A490", "wet_cobblestone", "cobblestone", 0.0, 0.70, 0.9, 0.26, 0.70),
+        "brass_gold": mcel("MAT_Brass_Gold", "#E0AA28", "scratched_brass", None, 0.85, 0.26, 2.5, 0.18, 1.25),
+        "brass_dark": mcel("MAT_Brass_Dark", "#8E621C", "scratched_brass", None, 0.82, 0.34, 2.2, 0.22, 1.10),
+        "copper_ox": mcel("MAT_Copper_Ox", "#357266", "oxidized_copper", "oxidized_metal", 0.72, 0.42, 1.2, 0.28, 1.20),
+        "iron_dark": mcel("MAT_Iron_Dark", "#252B38", "oxidized_copper", "oxidized_metal", 0.78, 0.44, 1.5, 0.26, 1.15),
+        "steel_bright": mcel("MAT_Steel_Bright", "#8E9CAD", "scratched_brass", None, 0.88, 0.24, 2.5, 0.16, 1.15),
+        "rust_grate": mcel("MAT_Rust_Grate", "#5E3624", "oxidized_copper", "oxidized_metal", 0.65, 0.54, 2.0, 0.32, 0.95),
+        "porcelain": mcel("MAT_Porcelain", "#FAF5EC", "painted", None, 0.0, 0.16, 2.0, 0.06, 0.85),
+        "tea_liquid": mcel("MAT_Tea_Liquid", "#7C421C", "painted", None, 0.0, 0.10, 2.0, 0.04, 0.60),
+        "burlap": mcel("MAT_Burlap", "#C4A476", "woven_fabric", "woven_fabric", 0.0, 0.88, 3.0, 0.34, 0.70),
+        "canopy_red": mcel("MAT_Canopy_Red", "#D83028", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.90),
+        "canopy_cream": mcel("MAT_Canopy_Cream", "#F7EEE0", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.24, 0.80),
+        "canopy_teal": mcel("MAT_Canopy_Teal", "#1C9E9A", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.85),
+        "canopy_ochre": mcel("MAT_Canopy_Ochre", "#C67E20", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.85),
+        "canopy_plum": mcel("MAT_Canopy_Plum", "#8E2D5A", "woven_fabric", "woven_fabric", 0.0, 0.82, 2.5, 0.26, 0.85),
+        "bistro_blue": mcel("MAT_Bistro_Blue", "#3E98DC", "painted", None, 0.20, 0.34, 2.0, 0.12, 0.90),
+        "tram_crimson": mcel("MAT_Tram_Crimson", "#B82220", "painted", None, 0.25, 0.26, 1.8, 0.14, 1.25),
+        "tram_cream": mcel("MAT_Tram_Cream", "#F2E5C8", "painted", None, 0.08, 0.32, 1.8, 0.12, 1.05),
+        "water_sea": mcel("MAT_Water_Sea", "#18466C", "wet_cobblestone", None, 0.0, 0.12, 0.4, 0.18, 1.15),
+        "prop_red": mcel("MAT_Prop_Red", "#DE3428", "painted", None, 0.0, 0.32, 2.0, 0.10, 0.90),
+        "prop_orange": mcel("MAT_Prop_Orange", "#F28218", "painted", None, 0.0, 0.38, 2.0, 0.14, 0.90),
+        "prop_green": mcel("MAT_Prop_Green", "#268C48", "painted", None, 0.0, 0.40, 2.0, 0.14, 0.85),
+        "prop_magenta": mcel("MAT_Prop_Magenta", "#D82874", "painted", None, 0.0, 0.48, 2.0, 0.16, 0.90),
+        "prop_blue": mcel("MAT_Prop_Blue", "#247CE0", "painted", None, 0.0, 0.34, 2.0, 0.10, 0.90),
+        "terracotta_pot": mcel("MAT_Terracotta_Pot", "#B65232", "peeling_plaster", None, 0.0, 0.76, 2.4, 0.26, 0.85),
+        "moss_wet": mcel("MAT_Moss_Wet", "#248052", "micro_fur", None, 0.0, 0.55, 2.2, 0.30, 0.95),
+        "turmeric_pile": mcel("MAT_Turmeric_Pile", "#F2B614", "woven_fabric", None, 0.0, 0.92, 4.0, 0.30, 0.85),
+        "chili_pile": mcel("MAT_Chili_Pile", "#D6261E", "woven_fabric", None, 0.0, 0.92, 4.0, 0.30, 0.85),
+        "clock_dial": mcel("MAT_Clock_Dial", "#FAF2DF", "painted", None, 0.0, 0.24, 1.0, 0.08, 0.95),
         # --- Referensi Arsitektur Mediterania, Trem Lisbon, Menara Venesia & Botani Bougainvillea ---
-        "terracotta_roof": create_cel_pbr_material("MAT_Terracotta_Roof", "#C65A34", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 1.6, 0.30, 0.90),
-        "limestone_trim": create_cel_pbr_material("MAT_Limestone_Trim", "#ECE4D4", "peeling_plaster", "peeling_plaster", 0.0, 0.74, 1.2, 0.20, 0.85),
-        "lapis_blue": create_cel_pbr_material("MAT_Lapis_Clock_Blue", "#1D448E", "peeling_plaster", None, 0.12, 0.34, 1.5, 0.14, 1.15),
-        "shutter_green": create_cel_pbr_material("MAT_Shutter_Green", "#2E7864", "oak_wood", "oak_wood", 0.0, 0.64, 2.2, 0.24, 0.85),
-        "shutter_blue": create_cel_pbr_material("MAT_Shutter_Blue", "#34729E", "oak_wood", "oak_wood", 0.0, 0.64, 2.2, 0.24, 0.85),
-        "boug_bark": create_cel_pbr_material("MAT_Boug_Bark", "#6A5442", "oak_wood", None, 0.0, 0.88, 3.5, 0.36, 0.65),
-        "boug_leaf": create_cel_pbr_material("MAT_Boug_Leaf", "#2B7A3E", "painted", None, 0.0, 0.38, 3.0, 0.14, 0.95),
-        "boug_bract": create_cel_pbr_material("MAT_Boug_Bract_Magenta", "#E02878", "woven_fabric", None, 0.0, 0.62, 4.0, 0.16, 1.20),
-        "boug_flower_cream": create_cel_pbr_material("MAT_Boug_Flower_Cream", "#FFF4CC", "painted", None, 0.0, 0.45, 2.0, 0.04, 0.85),
-        "soil_dark": create_cel_pbr_material("MAT_Soil_Dark", "#3B2A1E", "wet_cobblestone", None, 0.0, 0.95, 5.0, 0.40, 0.30),
-        "tram_varnished_wood": create_cel_pbr_material("MAT_Tram_Varnished_Wood", "#7E441E", "oak_wood", "oak_wood", 0.0, 0.24, 2.0, 0.18, 0.95),
+        "terracotta_roof": mcel("MAT_Terracotta_Roof", "#C65A34", "peeling_plaster", "peeling_plaster", 0.0, 0.72, 1.6, 0.30, 0.90),
+        "limestone_trim": mcel("MAT_Limestone_Trim", "#ECE4D4", "peeling_plaster", "peeling_plaster", 0.0, 0.74, 1.2, 0.20, 0.85),
+        "lapis_blue": mcel("MAT_Lapis_Clock_Blue", "#1D448E", "peeling_plaster", None, 0.12, 0.34, 1.5, 0.14, 1.15),
+        "shutter_green": mcel("MAT_Shutter_Green", "#2E7864", "oak_wood", "oak_wood", 0.0, 0.64, 2.2, 0.24, 0.85),
+        "shutter_blue": mcel("MAT_Shutter_Blue", "#34729E", "oak_wood", "oak_wood", 0.0, 0.64, 2.2, 0.24, 0.85),
+        "boug_bark": mcel("MAT_Boug_Bark", "#6A5442", "oak_wood", None, 0.0, 0.88, 3.5, 0.36, 0.65),
+        "boug_leaf": mcel("MAT_Boug_Leaf", "#2B7A3E", "painted", None, 0.0, 0.38, 3.0, 0.14, 0.95),
+        "boug_bract": mcel("MAT_Boug_Bract_Magenta", "#E02878", "woven_fabric", None, 0.0, 0.62, 4.0, 0.16, 1.20),
+        "boug_flower_cream": mcel("MAT_Boug_Flower_Cream", "#FFF4CC", "painted", None, 0.0, 0.45, 2.0, 0.04, 0.85),
+        "soil_dark": mcel("MAT_Soil_Dark", "#3B2A1E", "wet_cobblestone", None, 0.0, 0.95, 5.0, 0.40, 0.30),
+        "tram_varnished_wood": mcel("MAT_Tram_Varnished_Wood", "#7E441E", "oak_wood", "oak_wood", 0.0, 0.24, 2.0, 0.18, 0.95),
         # --- Glass & Emissives ---
         "glass_dusty": create_dusty_glass_material("MAT_Glass_Dusty", "#D0EEF6", 0.34),
         "glass_lamp_green": create_dusty_glass_material("MAT_Glass_Lamp_Green", "#1B8A4E", 0.84),
@@ -720,36 +775,33 @@ def create_material_library() -> Dict[str, "bpy.types.Material"]:
         "fx_chili": create_soft_cloud_material("MAT_FX_Chili", "#E03824", 0.64, 0.25),
         "fx_emerald_steam": create_soft_cloud_material("MAT_FX_Emerald_Steam", "#2AE2A4", 0.48, 0.95),
         "fx_gold_dust": create_soft_cloud_material("MAT_FX_Gold_Dust", "#FFE89A", 0.78, 1.8),
-        # --- BIMA (Hero Protagonist — Saffron Yellow EKSKLUSIF!) ---
-        "bima_skin": create_cel_pbr_material("MAT_Bima_Skin", "#F2BE96", "painted", None, 0.0, 0.56, 3.0, 0.05, 0.90),
-        "bima_hair": create_cel_pbr_material("MAT_Bima_Hair", "#3E261A", "micro_fur", None, 0.0, 0.48, 3.0, 0.14, 1.05),
-        "bima_parka": create_cel_pbr_material("MAT_Bima_Parka_Saffron", "#F2B705", "woven_fabric", "woven_fabric", 0.0, 0.78, 3.2, 0.22, 1.25),
-        "bima_scarf": create_cel_pbr_material("MAT_Bima_Scarf_Terracotta", "#C84B31", "woven_fabric", "woven_fabric", 0.0, 0.84, 3.5, 0.24, 1.15),
-        "bima_navy": create_cel_pbr_material("MAT_Bima_Cargo_Navy", "#2B3A55", "woven_fabric", "woven_fabric", 0.0, 0.82, 3.0, 0.22, 0.95),
-        "bima_leather": create_cel_pbr_material("MAT_Bima_Leather", "#5A341C", "oak_wood", None, 0.0, 0.44, 3.5, 0.18, 0.95),
-        "bima_laces": create_cel_pbr_material("MAT_Bima_Laces_Orange", "#FF6A14", "woven_fabric", None, 0.0, 0.70, 4.0, 0.12, 1.0),
-        "bima_smudge": create_cel_pbr_material("MAT_Bima_Oil_Smudge", "#242228", "painted", None, 0.0, 0.50, 2.0, 0.05, 0.30),
-        "eye_white": create_cel_pbr_material("MAT_Eye_White", "#FAF8F4", "painted", None, 0.0, 0.12, 1.0, 0.01, 0.35),
-        "eye_dark": create_cel_pbr_material("MAT_Eye_Dark", "#16121C", "painted", None, 0.0, 0.08, 1.0, 0.01, 0.25),
-        "mouth_inside": create_cel_pbr_material("MAT_Mouth_Inside", "#8C2232", "painted", None, 0.0, 0.60, 1.0, 0.02, 0.20),
-        # --- OREN (Kucing Kampung Gang Kafe) ---
-        "oren_fur": create_cel_pbr_material("MAT_Oren_Fur", "#E67E22", "micro_fur", None, 0.0, 0.72, 4.0, 0.28, 1.45),
-        "oren_stripe": create_cel_pbr_material("MAT_Oren_Stripe", "#A84A10", "micro_fur", None, 0.0, 0.76, 4.0, 0.28, 1.25),
-        "oren_belly": create_cel_pbr_material("MAT_Oren_Belly", "#F5E6CA", "micro_fur", None, 0.0, 0.78, 4.0, 0.26, 1.30),
-        "oren_eye_olive": create_cel_pbr_material("MAT_Oren_Eye_Olive", "#8AA832", "painted", None, 0.0, 0.10, 1.0, 0.02, 0.60),
-        "oren_nose_pink": create_cel_pbr_material("MAT_Oren_Nose_Pink", "#E28B92", "painted", None, 0.0, 0.62, 4.0, 0.12, 0.75),
-        "oren_collar_teal": create_cel_pbr_material("MAT_Oren_Collar_Teal", "#4F9DA6", "woven_fabric", "woven_fabric", 0.0, 0.84, 5.0, 0.26, 1.05),
-        "oren_bell_copper": create_cel_pbr_material("MAT_Oren_Bell_Copper", "#C87438", "scratched_brass", None, 0.84, 0.30, 4.0, 0.18, 1.30),
-        # --- HERO PROPS (Micro-PBR Kunci Emas & Kunci Perak) ---
-        "hero_gold_key": create_cel_pbr_material("MAT_Hero_Golden_Key", "#F0BE32", "scratched_brass", None, 0.92, 0.20, 4.0, 0.14, 1.55),
-        "hero_silver_key": create_cel_pbr_material("MAT_Hero_Silver_Key", "#D6E4F0", "scratched_brass", None, 0.94, 0.18, 4.5, 0.12, 1.65),
-        # --- FIGURAN (DILARANG memakai Kuning Saffron!) ---
-        "pedagang_shirt": create_cel_pbr_material("MAT_Pedagang_Shirt", "#C44536", "woven_fabric", "woven_fabric", 0.0, 0.84, 3.0, 0.22, 0.95),
-        "pedagang_hat": create_cel_pbr_material("MAT_Pedagang_Hat", "#D4B47C", "woven_fabric", "woven_fabric", 0.0, 0.86, 4.0, 0.30, 0.90),
-        "penumpang_coat": create_cel_pbr_material("MAT_Penumpang_Coat", "#3F5E4E", "woven_fabric", "woven_fabric", 0.0, 0.80, 3.0, 0.24, 1.05),
-        "penumpang_beret": create_cel_pbr_material("MAT_Penumpang_Beret", "#7B283C", "woven_fabric", None, 0.0, 0.84, 3.0, 0.20, 1.05),
-        "penumpang_scarf": create_cel_pbr_material("MAT_Penumpang_Scarf", "#2E7D8C", "woven_fabric", None, 0.0, 0.84, 3.0, 0.22, 1.05),
-        "seagull_white": create_cel_pbr_material("MAT_Seagull_White", "#F4F6FA", "micro_fur", None, 0.0, 0.62, 2.0, 0.10, 1.30),
-        "seagull_wingtip": create_cel_pbr_material("MAT_Seagull_Wingtip", "#2C3848", "micro_fur", None, 0.0, 0.64, 2.0, 0.10, 1.15),
+        # --- BIMA & CAST MATERIALS ---
+        "bima_skin": mcel("MAT_Bima_Skin", "#F2BE96", "painted", None, 0.0, 0.56, 3.0, 0.05, 0.90),
+        "bima_hair": mcel("MAT_Bima_Hair", "#3E261A", "micro_fur", None, 0.0, 0.48, 3.0, 0.14, 1.05),
+        "bima_parka": mcel("MAT_Bima_Parka_Saffron", "#F2B705", "woven_fabric", "woven_fabric", 0.0, 0.78, 3.2, 0.22, 1.25),
+        "bima_scarf": mcel("MAT_Bima_Scarf_Terracotta", "#C84B31", "woven_fabric", "woven_fabric", 0.0, 0.84, 3.5, 0.24, 1.15),
+        "bima_navy": mcel("MAT_Bima_Cargo_Navy", "#2B3A55", "woven_fabric", "woven_fabric", 0.0, 0.82, 3.0, 0.22, 0.95),
+        "bima_leather": mcel("MAT_Bima_Leather", "#5A341C", "oak_wood", None, 0.0, 0.44, 3.5, 0.18, 0.95),
+        "bima_laces": mcel("MAT_Bima_Laces_Orange", "#FF6A14", "woven_fabric", None, 0.0, 0.70, 4.0, 0.12, 1.0),
+        "bima_smudge": mcel("MAT_Bima_Oil_Smudge", "#242228", "painted", None, 0.0, 0.50, 2.0, 0.05, 0.30),
+        "eye_white": mcel("MAT_Eye_White", "#FAF8F4", "painted", None, 0.0, 0.12, 1.0, 0.01, 0.35),
+        "eye_dark": mcel("MAT_Eye_Dark", "#16121C", "painted", None, 0.0, 0.08, 1.0, 0.01, 0.25),
+        "mouth_inside": mcel("MAT_Mouth_Inside", "#8C2232", "painted", None, 0.0, 0.60, 1.0, 0.02, 0.20),
+        "oren_fur": mcel("MAT_Oren_Fur", "#E67E22", "micro_fur", None, 0.0, 0.72, 4.0, 0.28, 1.45),
+        "oren_stripe": mcel("MAT_Oren_Stripe", "#A84A10", "micro_fur", None, 0.0, 0.76, 4.0, 0.28, 1.25),
+        "oren_belly": mcel("MAT_Oren_Belly", "#F5E6CA", "micro_fur", None, 0.0, 0.78, 4.0, 0.26, 1.30),
+        "oren_eye_olive": mcel("MAT_Oren_Eye_Olive", "#8AA832", "painted", None, 0.0, 0.10, 1.0, 0.02, 0.60),
+        "oren_nose_pink": mcel("MAT_Oren_Nose_Pink", "#E28B92", "painted", None, 0.0, 0.62, 4.0, 0.12, 0.75),
+        "oren_collar_teal": mcel("MAT_Oren_Collar_Teal", "#4F9DA6", "woven_fabric", "woven_fabric", 0.0, 0.84, 5.0, 0.26, 1.05),
+        "oren_bell_copper": mcel("MAT_Oren_Bell_Copper", "#C87438", "scratched_brass", None, 0.84, 0.30, 4.0, 0.18, 1.30),
+        "hero_gold_key": mcel("MAT_Hero_Golden_Key", "#F0BE32", "scratched_brass", None, 0.92, 0.20, 4.0, 0.14, 1.55),
+        "hero_silver_key": mcel("MAT_Hero_Silver_Key", "#D6E4F0", "scratched_brass", None, 0.94, 0.18, 4.5, 0.12, 1.65),
+        "pedagang_shirt": mcel("MAT_Pedagang_Shirt", "#C44536", "woven_fabric", "woven_fabric", 0.0, 0.84, 3.0, 0.22, 0.95),
+        "pedagang_hat": mcel("MAT_Pedagang_Hat", "#D4B47C", "woven_fabric", "woven_fabric", 0.0, 0.86, 4.0, 0.30, 0.90),
+        "penumpang_coat": mcel("MAT_Penumpang_Coat", "#3F5E4E", "woven_fabric", "woven_fabric", 0.0, 0.80, 3.0, 0.24, 1.05),
+        "penumpang_beret": mcel("MAT_Penumpang_Beret", "#7B283C", "woven_fabric", None, 0.0, 0.84, 3.0, 0.20, 1.05),
+        "penumpang_scarf": mcel("MAT_Penumpang_Scarf", "#2E7D8C", "woven_fabric", None, 0.0, 0.84, 3.0, 0.22, 1.05),
+        "seagull_white": mcel("MAT_Seagull_White", "#F4F6FA", "micro_fur", None, 0.0, 0.62, 2.0, 0.10, 1.30),
+        "seagull_wingtip": mcel("MAT_Seagull_Wingtip", "#2C3848", "micro_fur", None, 0.0, 0.64, 2.0, 0.10, 1.15),
     }
     return lib

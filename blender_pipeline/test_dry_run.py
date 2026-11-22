@@ -554,10 +554,32 @@ def _install_mock_blender() -> None:
             use_shadows=True,
             use_volumetric_shadows=True,
             volumetric_tile_size="4",
-            use_raytracing=True,
+            use_raytracing=False,
             use_gtao=True,
         ),
-        view_settings=types.SimpleNamespace(view_transform="AgX", look="AgX - Punchy", exposure=0.0),
+        cycles=types.SimpleNamespace(
+            samples=32,
+            device="GPU",
+            denoiser="OPTIX",
+            use_adaptive_sampling=True,
+            adaptive_threshold=0.035,
+            use_denoising=True,
+            max_bounces=4,
+            diffuse_bounces=2,
+            glossy_bounces=2,
+            transmission_bounces=3,
+            transparent_max_bounces=8,
+            volume_bounces=0,
+            use_fast_gi=False,
+        ),
+        view_settings=types.SimpleNamespace(view_transform="Filmic", look="Medium High Contrast", exposure=0.25),
+    )
+
+    mock_gpu = types.SimpleNamespace(name="NVIDIA L4 (Mock)", type="OPTIX", use=True)
+    mock_cyc_prefs = types.SimpleNamespace(
+        compute_device_type="OPTIX",
+        devices=[mock_gpu],
+        get_devices=lambda: None,
     )
 
     bpy_mod = types.ModuleType("bpy")
@@ -577,6 +599,7 @@ def _install_mock_blender() -> None:
     bpy_mod.context = types.SimpleNamespace(
         scene=scene,
         view_layer=types.SimpleNamespace(objects=types.SimpleNamespace(active=None)),
+        preferences=types.SimpleNamespace(addons={"cycles": types.SimpleNamespace(preferences=mock_cyc_prefs)}),
     )
     bpy_mod.types = types.SimpleNamespace(
         RenderSettings=types.SimpleNamespace(

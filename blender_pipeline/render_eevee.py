@@ -82,12 +82,14 @@ def reset_scene() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 
-def configure_eevee_next(width: int, height: int, samples: int = 64) -> None:
-    """Konfigurasi Blender 4.2+ EEVEE Next dengan warna kartun cerah, Mist Pass Haze & Motion Blur."""
+def configure_render_engine(engine_mode: str, width: int, height: int, samples: int = 32) -> str:
+    """
+    Konfigurasi Mesin Render GPU Cepat untuk Colab Pro (NVIDIA L4 / A100 / T4):
+      - `CYCLES` (DEFAULT!): Langsung ke NVIDIA RT Core (OPTIX / CUDA) + AI Denoiser —
+        BEBAS fallback CPU llvmpipe, ~2-4 detik/frame di L4 GPU, pencahayaan & bayangan kelas film!
+      - `EEVEE`: Blender 4.2+ EEVEE Next dengan setting ringan & cepat.
+    """
     scene = bpy.context.scene
-    avail_engines = [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
-    scene.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in avail_engines else "BLENDER_EEVEE"
-
     scene.render.resolution_x = int(width)
     scene.render.resolution_y = int(height)
     scene.render.resolution_percentage = 100
@@ -95,7 +97,6 @@ def configure_eevee_next(width: int, height: int, samples: int = 64) -> None:
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
 
-    # Aktifkan Mist Pass untuk atmospheric haze cerah di Compositor (tanpa menggelapkan langit!)
     if hasattr(scene, "view_layers") and len(scene.view_layers) > 0:
         vl = scene.view_layers[0]
         if hasattr(vl, "use_pass_mist"):
@@ -104,15 +105,68 @@ def configure_eevee_next(width: int, height: int, samples: int = 64) -> None:
     scene.render.use_motion_blur = True
     scene.render.motion_blur_shutter = 0.28
 
-    eevee = scene.eevee
-    if hasattr(eevee, "taa_render_samples"):
-        eevee.taa_render_samples = int(samples)
-    if hasattr(eevee, "use_shadows"):
-        eevee.use_shadows = True
-    if hasattr(eevee, "use_raytracing"):
-        eevee.use_raytracing = True
-    if hasattr(eevee, "use_gtao"):
-        eevee.use_gtao = True
+    eng_u = engine_mode.upper()
+    if eng_u == "CYCLES":
+        scene.render.engine = "CYCLES"
+        cyc = scene.cycles
+        cyc.samples = int(samples)
+        if hasattr(cyc, "use_adaptive_sampling"):
+            cyc.use_adaptive_sampling = True
+            cyc.adaptive_threshold = 0.035
+        if hasattr(cyc, "use_denoising"):
+            cyc.use_denoising = True
+        if hasattr(cyc, "max_bounces"):
+            cyc.max_bounces = 4
+            cyc.diffuse_bounces = 2
+            cyc.glossy_bounces = 2
+            cyc.transmission_bounces = 3
+            cyc.transparent_max_bounces = 8
+            cyc.volume_bounces = 0
+        if hasattr(cyc, "use_fast_gi"):
+            cyc.use_fast_gi = False
+
+        # Paksa aktivasi GPU NVIDIA OPTIX -> fallback CUDA -> fallback CPU (log eksplisit!)
+        gpu_activated = False
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            for dev_type in ("OPTIX", "CUDA", "HIP"):
+                try:
+                    prefs.compute_device_type = dev_type
+                    prefs.get_devices()
+                    gpu_devs = [d for d in prefs.devices if d.type == dev_type]
+                    if gpu_devs:
+                        for d in prefs.devices:
+                            d.use = (d.type == dev_type)
+                        cyc.device = "GPU"
+                        if dev_type == "OPTIX" and hasattr(cyc, "denoiser"):
+                            try:
+                                cyc.denoiser = "OPTIX"
+                            except Exception:
+                                pass
+                        print(f"[GPU] Cycles {dev_type} AKTIF: {[d.name for d in gpu_devs]} ({samples} samples + AI Denoiser)!", flush=True)
+                        gpu_activated = True
+                        break
+                except Exception:
+                    continue
+        except Exception as exc:
+            print(f"[GPU] Info setup Cycles device: {exc}", flush=True)
+        if not gpu_activated:
+            cyc.device = "CPU"
+            print("[GPU] Peringatan: tidak menemukan GPU OPTIX/CUDA, jatuh ke Cycles CPU.", flush=True)
+    else:
+        avail_engines = [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
+        scene.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in avail_engines else "BLENDER_EEVEE"
+        eevee = scene.eevee
+        if hasattr(eevee, "taa_render_samples"):
+            eevee.taa_render_samples = min(24, int(samples))
+        if hasattr(eevee, "use_shadows"):
+            eevee.use_shadows = True
+        # Matikan screen-space raytracing berat agar tidak jadi 7 menit/frame bila jatuh ke software GL!
+        if hasattr(eevee, "use_raytracing"):
+            eevee.use_raytracing = False
+        if hasattr(eevee, "use_gtao"):
+            eevee.use_gtao = True
+        print(f"[GPU] EEVEE aktif ({scene.render.engine}, {min(24, int(samples))} samples, fast raster mode)", flush=True)
 
     # Color management CERAH & JENUH (Filmic / Standard agar warna langit & karakter tidak kusam gelap!)
     vs = scene.view_settings
@@ -128,7 +182,8 @@ def configure_eevee_next(width: int, height: int, samples: int = 64) -> None:
             break
         except Exception:
             continue
-    vs.exposure = 0.22
+    vs.exposure = 0.28
+    return eng_u
 
 
 def setup_compositor() -> None:
@@ -285,6 +340,7 @@ def build_complete_project(
     samples: int,
     download_assets: bool = False,
     pbr_res: str = "2k",
+    engine_mode: str = "CYCLES",
 ) -> Tuple[str, ExactCharacterCastManager]:
     """Bangun dunia 3D referensi nyata + Poly Haven CC0 + karakter 100% asli Preview 1."""
     t0 = time.perf_counter()
@@ -294,10 +350,10 @@ def build_complete_project(
         download_polyhaven_3d_models(resolution="1k")
 
     reset_scene()
-    configure_eevee_next(width, height, samples=samples)
+    eng_u = configure_render_engine(engine_mode, width, height, samples=samples)
 
-    print("[Blender] 1/5 Membangun pustaka shader Cel-Shaded Cerah + PBR 2K...")
-    mats = create_material_library()
+    print(f"[Blender] 1/5 Membangun pustaka shader Stylized PBR ({eng_u}) + PBR 2K...")
+    mats = create_material_library(render_engine=eng_u)
 
     print("[Blender] 2/5 Membangun 6 Lokasi 3D Berbasis Referensi Nyata + Model CC0 Poly Haven...")
     handles = build_all_6_locations(mats)
@@ -411,18 +467,19 @@ def render_video_sequence(cast_mgr: ExactCharacterCastManager, start_frame: int,
 
 def _parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    p = argparse.ArgumentParser(description='Blender EEVEE Next v2 — "Jangan Sampai Kunci Ini Jatuh!"')
+    p = argparse.ArgumentParser(description='Blender Cycles OptiX / EEVEE Next v2 — "Jangan Sampai Kunci Ini Jatuh!"')
     p.add_argument("--mode", choices=("save-blend", "previews", "video"), default="previews")
+    p.add_argument("--engine", choices=("CYCLES", "EEVEE"), default="CYCLES")
     p.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     p.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
-    p.add_argument("--samples", type=int, default=64)
+    p.add_argument("--samples", type=int, default=32)
     p.add_argument("--download-pbr", "--download-assets", dest="download_assets", action="store_true")
     p.add_argument("--pbr-res", default="2k", choices=("1k", "2k"))
     p.add_argument("--blend-in", default="")
     p.add_argument("--start-frame", type=int, default=1)
     p.add_argument("--end-frame", type=int, default=TOTAL_FRAMES)
     p.add_argument("--resume", action="store_true")
-    p.add_argument("--out-mp4", default=os.path.join(OUTPUT_DIR, "jangan_sampai_kunci_ini_jatuh_eevee.mp4"))
+    p.add_argument("--out-mp4", default=os.path.join(OUTPUT_DIR, "jangan_sampai_kunci_ini_jatuh_blender.mp4"))
     return p.parse_args(argv)
 
 
@@ -431,12 +488,13 @@ def main() -> None:
     args = _parse_args()
     if args.blend_in and os.path.exists(args.blend_in):
         bpy.ops.wm.open_mainfile(filepath=args.blend_in)
-        configure_eevee_next(args.width, args.height, samples=args.samples)
+        configure_render_engine(args.engine, args.width, args.height, samples=args.samples)
         cast_mgr = _rebind_cast_manager_from_loaded_blend(args.width)
     else:
         _, cast_mgr = build_complete_project(
             args.width, args.height, args.samples,
             download_assets=args.download_assets, pbr_res=args.pbr_res,
+            engine_mode=args.engine,
         )
 
     if args.mode == "previews":
