@@ -140,7 +140,7 @@ jobs:
   # STAGE 2B: 6-Way Parallel Video Scene Evaluation Clips (30 FPS + VO/SFX)
   # ===========================================================================
   render-eval-clips:
-    name: Render Scene Clip ${{ matrix.clip + 1 }}/6
+    name: Render Scene Clip #${{ matrix.clip }}
     needs: prepare-audio
     runs-on: ubuntu-latest
     strategy:
@@ -180,7 +180,7 @@ jobs:
           "$BPY" -m ensurepip --default-pip || true
           "$BPY" -m pip install -q --upgrade resvg-py pillow numpy
 
-      - name: Render Animated Scene Clip ${{ matrix.clip + 1 }}/6 (EEVEE Fast-CI 30fps)
+      - name: Render Animated Scene Clip #${{ matrix.clip }} (EEVEE Fast-CI 30fps)
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           GALLIUM_DRIVER: "llvmpipe"
