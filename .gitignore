@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+output/
+characters/previews/cli_test_*.png
+.DS_Store

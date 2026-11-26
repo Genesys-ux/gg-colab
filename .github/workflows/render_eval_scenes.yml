@@ -1,0 +1,256 @@
+name: DETIK KE-75 — Render Scene Evaluasi Blender 3D
+
+on:
+  push:
+    branches:
+      - detik-ke-75
+    paths-ignore:
+      - "eval_renders/**"
+      - "**.md"
+  workflow_dispatch:
+    inputs:
+      render_scope:
+        description: "Cakupan render (eval_scenes = 6 klip + 12 keyframe cepat, full_75s = video utuh 75 detik)"
+        required: true
+        default: "eval_scenes"
+        type: choice
+        options:
+          - eval_scenes
+          - full_75s
+
+permissions:
+  contents: write
+
+env:
+  BLENDER_VER: "4.2.3"
+  BLENDER_DIR: "/tmp/blender_42"
+
+jobs:
+  # ===========================================================================
+  # STAGE 1: Generate Synchronized Indonesian VO (edge-tts) + 140BPM Score/SFX
+  # ===========================================================================
+  prepare-audio:
+    name: Generate Master Audio 75s (VO + Musik/SFX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg & Python deps
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y ffmpeg
+          pip install -q --upgrade pip
+          pip install -q -r requirements.txt
+
+      - name: Run Dry-Run Validator & Generate 75s Master Audio
+        run: |
+          python blender_pipeline/verify_dry_run.py
+          python audio/generate_audio_detik75.py
+          ls -lh audio/output/
+
+      - name: Warm Blender 4.2 LTS Cache
+        id: cache-blender-warm
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BLENDER_DIR }}
+          key: blender-linux-${{ env.BLENDER_VER }}
+
+      - name: Download Blender 4.2 LTS (once for all parallel workers)
+        if: steps.cache-blender-warm.outputs.cache-hit != 'true'
+        run: |
+          MIRRORS=(
+            "https://download.blender.org/release/Blender4.2/blender-${BLENDER_VER}-linux-x64.tar.xz"
+            "https://ftp.nluug.nl/pub/graphics/blender/release/Blender4.2/blender-${BLENDER_VER}-linux-x64.tar.xz"
+            "https://mirrors.ocf.berkeley.edu/blender/release/Blender4.2/blender-${BLENDER_VER}-linux-x64.tar.xz"
+          )
+          mkdir -p "${BLENDER_DIR}"
+          for URL in "${MIRRORS[@]}"; do
+            if curl -fSL --retry 3 -A "Mozilla/5.0" "$URL" -o /tmp/blender.tar.xz; then
+              break
+            fi
+          done
+          tar -xf /tmp/blender.tar.xz -C "${BLENDER_DIR}" --strip-components=1
+          rm -f /tmp/blender.tar.xz
+          BPY=$(ls "${BLENDER_DIR}"/4.*/python/bin/python3* | head -n 1)
+          "$BPY" -m ensurepip --default-pip || true
+          "$BPY" -m pip install -q --upgrade resvg-py pillow numpy
+
+      - name: Upload Master Audio Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: detik75-audio-bundle
+          path: audio/output/
+          retention-days: 5
+
+  # ===========================================================================
+  # STAGE 2A: Render 12 Raytraced Cycles Keyframes + 3 Contact Sheets (Babak I-III)
+  # ===========================================================================
+  render-keyframes:
+    name: Render 12 Keyframes HD (Cycles + OIDN)
+    needs: prepare-audio
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Blender system libs & fonts
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y \
+            xvfb libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libxi6 \
+            libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libice6 \
+            libglu1-mesa libunwind8 fonts-dejavu-core ffmpeg
+
+      - name: Restore Blender 4.2 LTS Cache
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BLENDER_DIR }}
+          key: blender-linux-${{ env.BLENDER_VER }}
+
+      - name: Ensure Blender if cache missed
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${BLENDER_DIR}"
+          curl -fSL --retry 3 -A "Mozilla/5.0" "https://download.blender.org/release/Blender4.2/blender-${BLENDER_VER}-linux-x64.tar.xz" -o /tmp/blender.tar.xz
+          tar -xf /tmp/blender.tar.xz -C "${BLENDER_DIR}" --strip-components=1
+          BPY=$(ls "${BLENDER_DIR}"/4.*/python/bin/python3* | head -n 1)
+          "$BPY" -m ensurepip --default-pip || true
+          "$BPY" -m pip install -q --upgrade resvg-py pillow numpy
+
+      - name: Render 12 Hero Keyframes & 3 Babak Contact Sheets
+        run: |
+          "${BLENDER_DIR}/blender" -b --python-exit-code 1 \
+            -P blender_pipeline/render_detik75.py -- \
+            --mode keyframes --engine CYCLES \
+            --width 720 --height 1280 --samples 18 \
+            --out eval_renders/keyframes
+
+      - name: Upload Keyframes Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detik75-eval-keyframes
+          path: eval_renders/keyframes/*.png
+          retention-days: 7
+
+  # ===========================================================================
+  # STAGE 2B: 6-Way Parallel Video Scene Evaluation Clips (30 FPS + VO/SFX)
+  # ===========================================================================
+  render-eval-clips:
+    name: Render Scene Clip ${{ matrix.clip + 1 }}/6
+    needs: prepare-audio
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        clip: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: detik75-audio-bundle
+          path: audio/output
+
+      - name: Install headless OpenGL (Xvfb + Mesa) & FFmpeg
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y \
+            xvfb libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libxi6 \
+            libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libice6 \
+            libglu1-mesa fonts-dejavu-core ffmpeg
+
+      - name: Restore Blender 4.2 LTS Cache
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BLENDER_DIR }}
+          key: blender-linux-${{ env.BLENDER_VER }}
+
+      - name: Ensure Blender if cache missed
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${BLENDER_DIR}"
+          curl -fSL --retry 3 -A "Mozilla/5.0" "https://download.blender.org/release/Blender4.2/blender-${BLENDER_VER}-linux-x64.tar.xz" -o /tmp/blender.tar.xz
+          tar -xf /tmp/blender.tar.xz -C "${BLENDER_DIR}" --strip-components=1
+          BPY=$(ls "${BLENDER_DIR}"/4.*/python/bin/python3* | head -n 1)
+          "$BPY" -m ensurepip --default-pip || true
+          "$BPY" -m pip install -q --upgrade resvg-py pillow numpy
+
+      - name: Render Animated Scene Clip ${{ matrix.clip + 1 }}/6 (EEVEE Fast-CI 30fps)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: "llvmpipe"
+          MESA_GL_VERSION_OVERRIDE: "4.5"
+        run: |
+          mkdir -p eval_renders/clips
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            "${BLENDER_DIR}/blender" -b --python-exit-code 1 \
+            -P blender_pipeline/render_detik75.py -- \
+            --mode clip --clip-index "${{ matrix.clip }}" \
+            --engine EEVEE --width 720 --height 1280 --samples 8
+
+      - name: Upload Scene Clip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detik75-clip-${{ matrix.clip }}
+          path: eval_renders/clips/*.mp4
+          retention-days: 7
+
+  # ===========================================================================
+  # STAGE 3: Assemble Evaluation Showcase Reel + Commit Results Back to Branch
+  # ===========================================================================
+  publish-evaluation-pack:
+    name: Gabung Showcase Evaluasi & Simpan ke Repo
+    needs: [prepare-audio, render-keyframes, render-eval-clips]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Install FFmpeg
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg
+
+      - name: Download Keyframes & All 6 Scene Clips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: detik75-*
+          path: _downloaded
+
+      - name: Organize eval_renders & Build Combined Showcase MP4
+        run: |
+          mkdir -p eval_renders/keyframes eval_renders/clips audio/output
+          cp -f _downloaded/detik75-eval-keyframes/*.png eval_renders/keyframes/ || true
+          cp -f _downloaded/detik75-audio-bundle/* audio/output/ || true
+          for d in _downloaded/detik75-clip-*; do
+            [ -d "$d" ] && cp -f "$d"/*.mp4 eval_renders/clips/
+          done
+          ls -lh eval_renders/clips/
+          for f in $(ls eval_renders/clips/scene_*.mp4 | sort); do
+            echo "file '$(pwd)/$f'" >> concat_eval.txt
+          done
+          ffmpeg -y -f concat -safe 0 -i concat_eval.txt -c copy eval_renders/detik75_showcase_6_scenes.mp4
+          ls -lh eval_renders/detik75_showcase_6_scenes.mp4
+
+      - name: Upload Unified Evaluation Pack Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detik75-scene-evaluation-pack
+          path: |
+            eval_renders/detik75_showcase_6_scenes.mp4
+            eval_renders/clips/*.mp4
+            eval_renders/keyframes/*.png
+          retention-days: 14
+
+      - name: Commit Rendered Evaluation Scenes to Branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin "${{ github.ref_name }}" || true
+          git add -f eval_renders/keyframes/*.png eval_renders/clips/*.mp4 eval_renders/detik75_showcase_6_scenes.mp4
+          git diff --cached --quiet || git commit -m "chore(eval): add rendered Blender 3D evaluation scenes [skip ci]"
+          git push origin "HEAD:${{ github.ref_name }}"

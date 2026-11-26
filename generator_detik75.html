@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DETIK KE-75 — Character Studio (Shared Engine &amp; Free-Rig)</title>
+  <style>
+    :root {
+      --bg: #0d0c14;
+      --panel: #161422;
+      --panel-2: #1f1c30;
+      --border: #342f4d;
+      --text: #f4f1fc;
+      --muted: #a39bb8;
+      --cyan: #22c7e5;
+      --gold: #f2c138;
+      --crimson: #e03142;
+      --green: #2ec27e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: radial-gradient(circle at 20% 15%, #1e1933 0%, var(--bg) 65%);
+      color: var(--text);
+      height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(360px, 1fr) 460px;
+      overflow: hidden;
+    }
+    .stage-panel {
+      display: flex;
+      flex-direction: column;
+      padding: 16px 18px;
+      gap: 12px;
+      overflow: hidden;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .topbar h1 { font-size: 1.12rem; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+    .badge {
+      font-size: 0.68rem;
+      background: linear-gradient(135deg, rgba(34,199,229,0.22), rgba(242,193,56,0.25));
+      border: 1px solid rgba(242,193,56,0.6);
+      color: #ffefb8;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .canvas-stage {
+      flex: 1;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: grab;
+      user-select: none;
+      background: radial-gradient(circle at 50% 40%, #272238 0%, #110e1a 100%);
+      box-shadow: inset 0 0 40px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45);
+    }
+    .canvas-stage.dragging { cursor: grabbing; }
+    #previewCanvas { height: 92%; max-height: 620px; width: auto; filter: drop-shadow(0 16px 24px rgba(0,0,0,0.35)); }
+    .hud-tl { position: absolute; top: 13px; left: 13px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+    .hud-chip {
+      background: rgba(14,12,22,0.82);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #f4effa;
+      border-radius: 999px;
+      padding: 4px 11px;
+      font-size: 0.73rem;
+      font-weight: 600;
+    }
+    .hud-chip.free-chip { border-color: rgba(46,194,126,0.55); color: #a8f5cf; }
+    .stage-bottom {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 9px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .bar-label { font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 700; margin-right: 4px; }
+    button {
+      background: #272338;
+      color: var(--text);
+      border: 1px solid #3c3654;
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 0.73rem;
+      cursor: pointer;
+      transition: all 0.13s;
+    }
+    button:hover { background: #342f4b; border-color: #5d5380; }
+    button.active { background: #a83c6f; border-color: #e46ca4; color: #fff; font-weight: 700; }
+    .sidebar {
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .side-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .card-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 700; display: flex; justify-content: space-between; }
+    .char-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .char-btn { text-align: left; padding: 8px 9px; display: flex; flex-direction: column; gap: 2px; }
+    .char-btn small { font-size: 0.65rem; color: var(--muted); font-weight: 500; }
+    .char-btn.active small { color: #ffe4f2; }
+    .slider-row { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; }
+    .slider-row label { min-width: 116px; color: var(--muted); }
+    .slider-row input[type="range"] { flex: 1; accent-color: var(--cyan); }
+    .slider-row span { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: 0.72rem; }
+    .sidebar-footer {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      background: #120f1c;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .btn-export {
+      background: linear-gradient(135deg, #2ec27e, #1985b5);
+      border: none;
+      color: #fff;
+      font-weight: 800;
+      padding: 10px 12px;
+      font-size: 0.84rem;
+    }
+    pre {
+      background: #0c0a13;
+      border: 1px solid #2f2a46;
+      border-radius: 9px;
+      padding: 9px;
+      font-size: 0.68rem;
+      line-height: 1.42;
+      color: #cfe4ff;
+      max-height: 170px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <section class="stage-panel">
+    <div class="topbar">
+      <h1>🎬 DETIK KE-75 — Character Studio <span class="badge">Shared Engine &amp; Free-Rig</span></h1>
+      <a href="../122/generator.html" style="color:#8ce9ff;font-size:0.76rem;text-decoration:none;">↗ Buka Studio Penuh (generator.html)</a>
+    </div>
+
+    <div id="canvasStage" class="canvas-stage">
+      <div class="hud-tl">
+        <span id="hudName" class="hud-chip">Raka (26 • Kurir Pelarian)</span>
+        <span id="hudAngle" class="hud-chip">0° • Depan</span>
+        <span class="hud-chip free-chip">Shared Engine • Free-Rig IK</span>
+      </div>
+      <canvas id="previewCanvas" width="720" height="1560"></canvas>
+    </div>
+
+    <div class="stage-bottom">
+      <div class="group">
+        <span class="bar-label">Sudut</span>
+        <button class="angle-btn active" data-angle="0">0°</button>
+        <button class="angle-btn" data-angle="35">35°</button>
+        <button class="angle-btn" data-angle="90">90°</button>
+        <button class="angle-btn" data-angle="180">180°</button>
+        <button id="spinBtn">▶ Putar 360°</button>
+      </div>
+      <div class="group">
+        <span class="bar-label">Mode Rig</span>
+        <button class="anim-btn active" data-anim="free">Free-Rig</button>
+        <button class="anim-btn" data-anim="idle">Idle</button>
+        <button class="anim-btn" data-anim="run">Lari</button>
+        <button class="anim-btn" data-anim="walk">Jalan</button>
+        <button class="anim-btn" data-anim="jump">Lompat</button>
+        <button class="anim-btn" data-anim="talk">Bicara</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="sidebar">
+    <div class="side-scroll">
+      <div class="card">
+        <div class="card-title"><span>5 Karakter Peran Ganda (Memori ↔ Realitas)</span><span>10 Varian</span></div>
+        <div id="charGrid" class="char-grid"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>⏳ Morph-Target Aging (Khusus Raka 26 → 78 thn)</span><span id="lblAge">26 thn</span></div>
+        <div class="slider-row">
+          <label>Blendshape Usia</label>
+          <input id="slAge" type="range" min="0" max="1" step="0.02" value="0" />
+          <span id="valAge">0%</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>🦴 Kontrol Free-Rig Real-Time (2-Bone IK &amp; Postur)</span><button id="resetRigBtn" style="padding:2px 7px;font-size:0.66rem;">↺ Reset</button></div>
+        <div class="slider-row">
+          <label>Torso Lean (°)</label>
+          <input id="slLean" type="range" min="-18" max="18" step="1" value="0" />
+          <span id="valLean">0°</span>
+        </div>
+        <div class="slider-row">
+          <label>Pelvis Crouch</label>
+          <input id="slPelvis" type="range" min="-10" max="26" step="1" value="0" />
+          <span id="valPelvis">0</span>
+        </div>
+        <div class="slider-row">
+          <label>Head Tilt (°)</label>
+          <input id="slHeadTilt" type="range" min="-18" max="18" step="1" value="0" />
+          <span id="valHeadTilt">0°</span>
+        </div>
+        <div class="slider-row">
+          <label>Bukaan Mulut</label>
+          <input id="slMouth" type="range" min="0" max="1" step="0.05" value="0" />
+          <span id="valMouth">0.00</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>🐍 Pratinjau Modul Python (Shared Engine • Free-Rig)</span><span id="pyStats"></span></div>
+        <pre id="pyCodeBox"></pre>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button id="dlPyBtn" class="btn-export">⬇️ Download File Karakter .py (Shared Engine)</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <button id="dlEngineBtn">📦 Engine (character_engine_25d.py)</button>
+        <button id="dlJsonBtn">💾 Preset .json</button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="../122/character-engine.js"></script>
+  <script src="../122/prompt-engine.js"></script>
+  <script src="../122/python-engine-core.js"></script>
+  <script src="../122/python-exporter.js"></script>
+  <script src="./characters/presets_detik75.js"></script>
+  <script>
+    if (window.PRESETS_DETIK75) {
+      initStudio(window.PRESETS_DETIK75);
+    } else {
+      fetch('./characters/presets_detik75.json')
+        .then((r) => r.json())
+        .then((PRESETS_D75) => initStudio(PRESETS_D75));
+    }
+
+    function lerpHex(c1, c2, t) {
+      const a = parseInt(c1.slice(1), 16), b = parseInt(c2.slice(1), 16);
+      const r1 = (a >> 16) & 255, g1 = (a >> 8) & 255, b1 = a & 255;
+      const r2 = (b >> 16) & 255, g2 = (b >> 8) & 255, b2 = b & 255;
+      const r = Math.round(r1 + (r2 - r1) * t), g = Math.round(g1 + (g2 - g1) * t), bl = Math.round(b1 + (b2 - b1) * t);
+      return '#' + [r, g, bl].map((x) => x.toString(16).padStart(2, '0')).join('');
+    }
+
+    function projectLayers3D(layers, angleDeg) {
+      if (!layers) return [];
+      const rad = (((angleDeg % 360) + 360) % 360) * Math.PI / 180;
+      const s = Math.sin(rad), c = Math.cos(rad);
+      const out = [];
+      for (const item of layers) {
+        const side = item.facing || 'front';
+        if (side === 'front' && c <= -0.08) continue;
+        if (side === 'back' && c >= 0.08) continue;
+        const vis = side === 'front' ? Math.min(1, (c + 0.08) * 2.8) : (side === 'back' ? Math.min(1, (-c + 0.08) * 2.8) : 1);
+        const zOff = typeof item.z_offset === 'number' ? item.z_offset : 46;
+        const scX = side === 'both' ? 1 : Math.max(0.18, Math.abs(c));
+        const shX = side === 'both' ? 0 : zOff * s;
+        const tx = (x) => side === 'both' ? x : 104 + (x - 104) * c + shX;
+        const cl = { ...item, opacity: (item.opacity ?? 1) * vis };
+        if (cl.type === 'circle' || cl.type === 'ellipse') {
+          cl.x = tx(cl.x ?? 104);
+          if (cl.type === 'ellipse' && side !== 'both') cl.rx = Math.max(0.8, (cl.rx || 10) * scX);
+        } else if (cl.type === 'rect') {
+          const cx = (cl.x || 90) + (cl.w || 20) * 0.5;
+          const nw = side === 'both' ? cl.w : cl.w * scX;
+          cl.x = tx(cx) - nw * 0.5; cl.w = Math.max(1.2, nw);
+        } else if (cl.type === 'line') {
+          cl.x = tx(cl.x || 90); cl.x2 = tx(cl.x2 || 110);
+        }
+        out.push(cl);
+      }
+      return out;
+    }
+
+    function initStudio(PRESETS_D75) {
+      const { renderCharacterCanvas } = window.CharacterEngine;
+      const { generatePythonComponent, generateSharedEngineFile } = window.PythonExporter;
+
+      const META = [
+        ['raka_memori', '1A. Raka (26)', 'Memori • Kurir Pelarian', 'RakaMemoriCharacter'],
+        ['raka_realitas', '1B. Kakek Raka (78)', 'Realitas • Pasien ICU', 'RakaRealitasCharacter'],
+        ['sena_memori', '2A. Agen Sena (35)', 'Memori • Pemburu Taktis', 'SenaMemoriCharacter'],
+        ['sena_realitas', '2B. Dokter Sena (35)', 'Realitas • Spesialis ICU', 'SenaRealitasCharacter'],
+        ['bima_memori', '3A. Bima Zirah (42)', 'Memori • Penghadang', 'BimaMemoriCharacter'],
+        ['bima_realitas', '3B. Bima Parka (42)', 'Realitas • Putra Sulung', 'BimaRealitasCharacter'],
+        ['kira_memori', '4A. Kira Sniper (30)', 'Memori • Atap Badai', 'KiraMemoriCharacter'],
+        ['kira_realitas', '4B. Kira Putri (30)', 'Realitas • Kardigan & Jam', 'KiraRealitasCharacter'],
+        ['maya_realitas', '5A. Nenek Maya (75)', 'Memori & ICU • Syal Kuning', 'MayaRealitasCharacter'],
+        ['maya_muda', '5B. Maya Muda (25)', 'Twist Akhir • Gaun Vintage', 'MayaMudaCharacter']
+      ];
+
+      let activeId = 'raka_memori';
+      let activeClass = 'RakaMemoriCharacter';
+      let baseConfig = JSON.parse(JSON.stringify(PRESETS_D75[activeId]));
+      let viewAngle = 0, autoSpin = false, animMode = 'free', isDragging = false, lastX = 0;
+      let rig = { age: 0, lean: 0, pelvis: 0, headTilt: 0, mouth: 0 };
+      let lastPy = null;
+
+      const grid = document.getElementById('charGrid');
+      const canvas = document.getElementById('previewCanvas');
+      const ctx = canvas.getContext('2d');
+
+      function updatePyBox() {
+        lastPy = generatePythonComponent(baseConfig, {
+          mode: 'shared',
+          className: activeClass,
+          defaultAnimation: 'free',
+          fps: 30,
+          resolutionScale: 3
+        });
+        document.getElementById('pyStats').textContent = `${lastPy.lineCount} baris • Shared Engine`;
+        document.getElementById('pyCodeBox').textContent = lastPy.code;
+      }
+
+      META.forEach(([id, title, sub, cls], idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'char-btn' + (idx === 0 ? ' active' : '');
+        btn.innerHTML = `<strong>${title}</strong><small>${sub}</small>`;
+        btn.onclick = () => {
+          document.querySelectorAll('.char-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeId = id; activeClass = cls;
+          baseConfig = JSON.parse(JSON.stringify(PRESETS_D75[id]));
+          document.getElementById('hudName').textContent = baseConfig.name;
+          updatePyBox();
+        };
+        grid.appendChild(btn);
+      });
+
+      document.querySelectorAll('.angle-btn').forEach((b) => b.onclick = () => {
+        autoSpin = false; viewAngle = parseFloat(b.dataset.angle);
+      });
+      document.getElementById('spinBtn').onclick = (e) => {
+        autoSpin = !autoSpin; e.target.classList.toggle('active', autoSpin);
+      };
+      document.querySelectorAll('.anim-btn').forEach((b) => b.onclick = () => {
+        document.querySelectorAll('.anim-btn').forEach((x) => x.classList.remove('active'));
+        b.classList.add('active'); animMode = b.dataset.anim;
+      });
+
+      const stage = document.getElementById('canvasStage');
+      stage.onpointerdown = (e) => { isDragging = true; lastX = e.clientX; stage.classList.add('dragging'); };
+      window.onpointermove = (e) => { if (isDragging) { viewAngle = ((viewAngle + (e.clientX - lastX) * 0.85) % 360 + 360) % 360; lastX = e.clientX; } };
+      window.onpointerup = () => { isDragging = false; stage.classList.remove('dragging'); };
+
+      document.getElementById('slAge').oninput = (e) => {
+        rig.age = parseFloat(e.target.value);
+        document.getElementById('valAge').textContent = Math.round(rig.age * 100) + '%';
+        document.getElementById('lblAge').textContent = Math.round(26 + 52 * rig.age) + ' thn';
+      };
+      document.getElementById('slLean').oninput = (e) => { rig.lean = parseFloat(e.target.value); document.getElementById('valLean').textContent = rig.lean + '°'; };
+      document.getElementById('slPelvis').oninput = (e) => { rig.pelvis = parseFloat(e.target.value); document.getElementById('valPelvis').textContent = rig.pelvis; };
+      document.getElementById('slHeadTilt').oninput = (e) => { rig.headTilt = parseFloat(e.target.value); document.getElementById('valHeadTilt').textContent = rig.headTilt + '°'; };
+      document.getElementById('slMouth').oninput = (e) => { rig.mouth = parseFloat(e.target.value); document.getElementById('valMouth').textContent = rig.mouth.toFixed(2); };
+      document.getElementById('resetRigBtn').onclick = () => {
+        rig = { age: 0, lean: 0, pelvis: 0, headTilt: 0, mouth: 0 };
+        ['slAge','slLean','slPelvis','slHeadTilt','slMouth'].forEach((id) => document.getElementById(id).value = 0);
+        document.getElementById('valAge').textContent = '0%'; document.getElementById('lblAge').textContent = '26 thn';
+        document.getElementById('valLean').textContent = '0°'; document.getElementById('valPelvis').textContent = '0';
+        document.getElementById('valHeadTilt').textContent = '0°'; document.getElementById('valMouth').textContent = '0.00';
+      };
+
+      document.getElementById('dlPyBtn').onclick = () => {
+        const blob = new Blob([lastPy.code], { type: 'text/x-python' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${activeId}.py`; a.click();
+      };
+      document.getElementById('dlEngineBtn').onclick = () => {
+        const eng = generateSharedEngineFile();
+        const blob = new Blob([eng.code], { type: 'text/x-python' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = eng.fileName; a.click();
+      };
+      document.getElementById('dlJsonBtn').onclick = () => {
+        const blob = new Blob([JSON.stringify(baseConfig, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${activeId}.json`; a.click();
+      };
+
+      updatePyBox();
+      let t0 = performance.now();
+      function tick(now) {
+        const t = (now - t0) / 1000;
+        if (autoSpin && !isDragging) viewAngle = (viewAngle + 1.1) % 360;
+        document.getElementById('hudAngle').textContent = `${Math.round(viewAngle)}°`;
+
+        const renderCfg = JSON.parse(JSON.stringify(baseConfig));
+        let ov = {
+          torsoLeanZ: (rig.lean * Math.PI) / 180,
+          pelvisY: rig.pelvis,
+          headTilt: (rig.headTilt * Math.PI) / 180,
+          mouthOpen: rig.mouth
+        };
+        if (activeId === 'raka_memori' && rig.age > 0.01) {
+          renderCfg.hairColor = lerpHex('#1A1C26', '#E4E8F0', rig.age);
+          renderCfg.skinColor = lerpHex('#F6DFC8', '#EDE5DF', rig.age);
+          if (rig.age > 0.72) renderCfg.backHair = 'short';
+          ov.squashX = 1.02 - 0.12 * rig.age;
+          ov.pelvisY += 9 * rig.age;
+        }
+        renderCfg.customLayers = projectLayers3D(renderCfg.customLayers, viewAngle);
+        renderCharacterCanvas(ctx, renderCfg, viewAngle, animMode, t, { scale: 3, overrides: ov });
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+  </script>
+</body>
+</html>
